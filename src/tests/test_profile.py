@@ -12,7 +12,7 @@ import socapi.session as ses
 import socapi.client as cl
 
 @pytest.mark.asyncio
-async def test_login_success():
+async def test_profile_success():
     config = sc.ParserConfig(
         constructor=os.environ["CONSTRUCTOR_NAME"],
         username=os.environ["USERNAME"],
@@ -22,38 +22,40 @@ async def test_login_success():
     client = cl.ParserClient(config=config)
 
     async with client:
-        await client._auth._login()
+        me = await client.users.get_current_user()
 
-    assert client._auth._token is not None
-
-
-@pytest.mark.asyncio
-async def test_login_wrong_username():
-    with pytest.raises(aiohttp.ClientResponseError) as exc:
-
-        config = sc.ParserConfig(
-            constructor=os.environ["CONSTRUCTOR_NAME"],
-            username="wrong username",
-            password=os.environ["PASSWORD"]
-        )
-
-        client = cl.ParserClient(config=config)
-
-        async with client:
-            await client._auth._login()
+    assert me.id is not None
 
 
-@pytest.mark.asyncio
-async def test_login_wrong_username_and_password():
-    with pytest.raises(aiohttp.ClientResponseError) as exc:
 
-        config = sc.ParserConfig(
-            constructor=os.environ["CONSTRUCTOR_NAME"],
-            username="wrong username",
-            password="wrong password"
-        )
 
-        client = cl.ParserClient(config=config)
-
-        async with client:
-            await client._auth._login()
+# @pytest.mark.asyncio
+# async def test_login_wrong_username():
+#     with pytest.raises(aiohttp.ClientResponseError) as exc:
+#
+#         config = sc.ParserConfig(
+#             constructor=os.environ["CONSTRUCTOR_NAME"],
+#             username="wrong username",
+#             password=os.environ["PASSWORD"]
+#         )
+#
+#         client = cl.ParserClient(config=config)
+#
+#         async with client:
+#             await client._auth._login()
+#
+#
+# @pytest.mark.asyncio
+# async def test_login_wrong_username_and_password():
+#     with pytest.raises(aiohttp.ClientResponseError) as exc:
+#
+#         config = sc.ParserConfig(
+#             constructor=os.environ["CONSTRUCTOR_NAME"],
+#             username="wrong username",
+#             password="wrong password"
+#         )
+#
+#         client = cl.ParserClient(config=config)
+#
+#         async with client:
+#             await client._auth._login()

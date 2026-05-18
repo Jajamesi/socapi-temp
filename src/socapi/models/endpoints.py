@@ -8,3 +8,4 @@ class EndpointType(StrEnum):
 
 class Endpoints(StrEnum):
     login = '/login'
+    profile = '/profile'
