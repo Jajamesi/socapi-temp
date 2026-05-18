@@ -2,7 +2,9 @@ from email.policy import default
 from operator import gt
 
 from pydantic import BaseModel, model_validator, computed_field, field_validator, ValidationError, Field
-from typing import Optional, Literal, Union, List
+from typing import Optional, Literal, Union, List, LiteralString, Dict
+from .models.endpoints import EndpointType
+
 
 ConstructorName = Literal[
     "online-sociology.ru",
@@ -22,18 +24,29 @@ class Constructor(BaseModel):
     @computed_field
     @property
     def base_url(self) -> str:
-        return f"https://{self.name}/"
+        return f"https://{self.name}"
 
 
     @computed_field
     @property
     def admin_url(self) -> str:
-        return f"https://admin.{self.name}/"
+        return f"https://admin.{self.name}"
+
 
     @computed_field
     @property
     def api_url(self) -> str:
-        return f"{self.admin_url}api/"
+        return f"{self.admin_url}/api"
+
+
+    @computed_field
+    @property
+    def base_urls(self) -> Dict[EndpointType, str]:
+        return {
+            EndpointType.BASE: self.base_url,
+            EndpointType.API: self.api_url,
+            EndpointType.ADMIN: self.admin_url,
+        }
 
 
 
@@ -41,10 +54,10 @@ class Constructor(BaseModel):
 class ParserConfig(BaseModel):
     """
         Core config for sequential requests
+        Shared config properties and internal Constructor class
 
     """
-    constructor: ConstructorName
-    _constructor: Constructor
+    constructor: Union[ConstructorName, Constructor]
     username: str
     password: str
 
@@ -55,12 +68,14 @@ class ParserConfig(BaseModel):
 
     verify_ssl: bool = True
 
-
-    @computed_field
-    @property
-    def _constructor(self) -> Constructor:
-        try:
-            return Constructor(name=self.constructor)
-        except:
-            raise
-
+    @field_validator('constructor', mode='before')
+    @classmethod
+    def validate_constructor(cls, value) -> Constructor:
+        if isinstance(value, Constructor):
+            return value
+        elif isinstance(value, str):
+            try:
+                return Constructor(name=value)
+            except:
+                raise
+        raise ValidationError("constructor must be string or Constructor")
