@@ -7,7 +7,7 @@ import asyncio
 from .auth import AuthManager
 from .config import ParserConfig
 from .session import create_session
-
+from .models.endpoints import EndpointType, Endpoints
 
 class ParserClient:
     def __init__(self, config: ParserConfig):
@@ -17,7 +17,7 @@ class ParserClient:
 
         self._auth = AuthManager(
             session=self._session,
-            base_url=config.base_url,
+            api_url=config.constructor.api_url,
             username=config.username,
             password=config.password,
         )
@@ -38,23 +38,17 @@ class ParserClient:
     async def request(
         self,
         method: str,
+        endpoint_type: EndpointType,
         url: str,
         **kwargs,
     ):
         async with self._semaphore:
-            token = await self._auth.get_token()
 
-            headers = kwargs.pop("headers", {})
-
-            headers["Authorization"] = (
-                f"Bearer {token}"
-            )
-
-            response = await self._make_request(
+            response = await self._request_with_auth(
                 method,
+                endpoint_type,
                 url,
-                headers=headers,
-                **kwargs,
+                ** kwargs,
             )
 
             # token expired
@@ -63,16 +57,10 @@ class ParserClient:
 
                 await self._auth.force_refresh()
 
-                token = await self._auth.get_token()
-
-                headers["Authorization"] = (
-                    f"Bearer {token}"
-                )
-
-                response = await self._make_request(
+                response = await self._request_with_auth(
                     method,
+                    endpoint_type,
                     url,
-                    headers=headers,
                     **kwargs,
                 )
 
@@ -80,14 +68,45 @@ class ParserClient:
 
             return response
 
+
+    async def _request_with_auth(
+            self,
+            method,
+            endpoint_type: EndpointType,
+            url,
+            **kwargs,
+    ):
+        token = await self._auth.get_token()
+
+        headers = kwargs.pop("headers", {})
+
+        headers.update({
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "socapi",
+        })
+        kwargs["headers"] = headers
+
+        response = await self._make_request(
+            method,
+            endpoint_type,
+            url,
+            ** kwargs,
+        )
+
+        return response
+
+
     async def _make_request(
         self,
         method,
-        url,
+        endpoint_type: EndpointType,
+        url: str,
         **kwargs,
     ):
+        base_url = self.config.constructor.base_urls[endpoint_type]
+
         return await self._session.request(
             method,
-            f"{self.config.base_url}{url}",
+            f"{base_url}{url}",
             **kwargs,
         )
