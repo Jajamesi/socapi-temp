@@ -2,8 +2,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from socapi.client import ParserClient
 
-from socapi.models.endpoints import Endpoints, EndpointType
-from socapi.models.users import User
+from socapi.models.endpoints import Endpoints, EndpointType, FuncEndpoints
+from socapi.models.users import User, UserGetPayload
 
 class UsersResource:
     def __init__(self, client: "ParserClient"):
@@ -24,11 +24,16 @@ class UsersResource:
         return User(**user_data)
 
 
+    async def get_users(self, limit: int = 11, offset: int = 0):
+        response = await self._client.request(
+            method="POST",
+            endpoint_type=EndpointType.API,
+            url=f"{Endpoints.user}{FuncEndpoints.get}",
+            json=UserGetPayload(limit=limit, offset=offset).model_dump()
+        )
 
-    # async def get_user(self, user_id: int):
-    #     response = await self._client.request(
-    #         "GET",
-    #         f"/users/{user_id}",
-    #     )
-    #
-    #     return await response.json()
+        js = await response.json()
+
+        users_data = js.get("result", {})
+
+        return [User(**user_data) for user_data in users_data]

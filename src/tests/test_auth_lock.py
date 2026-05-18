@@ -1,3 +1,7 @@
+import asyncio
+from datetime import datetime, timedelta
+from unittest.mock import AsyncMock
+
 import pytest
 from pydantic import ValidationError
 import aiohttp
@@ -10,52 +14,42 @@ import socapi.config as sc
 import socapi.session as ses
 
 import socapi.client as cl
+from socapi.auth import AuthManager
+
 
 @pytest.mark.asyncio
-async def test_profile_success():
-    config = sc.ParserConfig(
-        constructor=os.environ["CONSTRUCTOR_NAME"],
-        username=os.environ["USERNAME"],
-        password=os.environ["PASSWORD"]
+async def test_auth_lock_allows_single_login():
+
+    auth = AuthManager(
+        session=None,
+        api_url="http://test",
+        username="user",
+        password="pass",
     )
 
-    client = cl.ParserClient(config=config)
+    login_calls = 0
 
-    async with client:
-        me = await client.users.get_current_user()
+    async def fake_login():
+        nonlocal login_calls
 
-    assert me.id is not None
+        login_calls += 1
 
+        # simulate slow network
+        await asyncio.sleep(0.1)
 
+        auth._token = "TOKEN"
+        auth._expires_at = (
+            datetime.now() + timedelta(minutes=30)
+        )
 
+    auth._login = AsyncMock(side_effect=fake_login)
 
-# @pytest.mark.asyncio
-# async def test_login_wrong_username():
-#     with pytest.raises(aiohttp.ClientResponseError) as exc:
-#
-#         config = sc.ParserConfig(
-#             constructor=os.environ["CONSTRUCTOR_NAME"],
-#             username="wrong username",
-#             password=os.environ["PASSWORD"]
-#         )
-#
-#         client = cl.ParserClient(config=config)
-#
-#         async with client:
-#             await client._auth._login()
-#
-#
-# @pytest.mark.asyncio
-# async def test_login_wrong_username_and_password():
-#     with pytest.raises(aiohttp.ClientResponseError) as exc:
-#
-#         config = sc.ParserConfig(
-#             constructor=os.environ["CONSTRUCTOR_NAME"],
-#             username="wrong username",
-#             password="wrong password"
-#         )
-#
-#         client = cl.ParserClient(config=config)
-#
-#         async with client:
-#             await client._auth._login()
+    async def worker():
+        return await auth.get_token()
+
+    results = await asyncio.gather(
+        *[worker() for _ in range(20)]
+    )
+
+    assert login_calls == 1
+    assert all(r == "TOKEN" for r in results)

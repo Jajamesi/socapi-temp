@@ -55,11 +55,8 @@ class ParserClient:
                 ** kwargs,
             )
 
-            print(response.status)
-
             # token expired
             if response.status == 401:
-                print("TRiggered")
                 response.release()
 
                 await self._auth.force_refresh()
