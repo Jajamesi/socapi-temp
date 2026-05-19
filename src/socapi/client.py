@@ -1,19 +1,25 @@
 # Main public API
 
 # client.py
+from typing import List, Optional
 
 import asyncio
 
 from .auth import AuthManager
 from .config import ParserConfig
+
 from .session import create_session
 from .models.endpoints import EndpointType, Endpoints
 
 from .resources.users import UsersResource
+from .resources.roles import RolesResource, Role
+from .resources.polls import PollResource, PollStatus
+from .resources.meta import MetaResource
 from .tracer import Tracer
 
 class ParserClient:
     def __init__(self, config: ParserConfig):
+
         self.config = config
 
         self._session = create_session(config)
@@ -32,7 +38,14 @@ class ParserClient:
             config.max_concurrency
         )
 
+        self.poll_statuses: Optional[List[PollStatus]] = None
+        self.role_data: Optional[List[Role]] = None
+        self.meta_data = None
+
         self.users = UsersResource(self)
+        self.roles = RolesResource(self)
+        self.polls = PollResource(self)
+        self.meta = MetaResource(self)
 
 
     async def close(self):
@@ -119,4 +132,12 @@ class ParserClient:
             method,
             f"{base_url}{url}",
             **kwargs,
+        )
+
+    async def meta_requests(self):
+
+        self.role_data, self.poll_statuses, self.meta_data = await asyncio.gather(
+            self.roles.get_role_list(),
+            self.polls.get_poll_statuses(),
+            self.meta.get_meta()
         )
