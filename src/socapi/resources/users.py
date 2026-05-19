@@ -4,12 +4,10 @@ if TYPE_CHECKING:
 
 from socapi.models.endpoints import Endpoints, EndpointType, FuncEndpoints
 from socapi.models.users import User, UserGetPayload
-
-class UsersResource:
-    def __init__(self, client: "ParserClient"):
-        self._client = client
+from socapi.resources.resource import Resource
 
 
+class UsersResource(Resource):
     async def get_current_user(self):
         response = await self._client.request(
             method="POST",

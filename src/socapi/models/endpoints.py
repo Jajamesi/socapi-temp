@@ -10,8 +10,13 @@ class Endpoints(StrEnum):
     login = '/login'
     profile = '/profile'
     user = '/user'
+    role = '/role'
+    poll = '/poll'
+    meta = '/meta'
 
 class FuncEndpoints(StrEnum):
     get = "/get"
     delete = "/api"
-    ADMIN = "/admin"
+    list = "/list"
+    status = "/status"
+    full = "/full"
