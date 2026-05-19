@@ -9,6 +9,8 @@ from .config import ParserConfig
 from .session import create_session
 from .models.endpoints import EndpointType, Endpoints
 
+from .resources.users import UsersResource
+
 class ParserClient:
     def __init__(self, config: ParserConfig):
         self.config = config
@@ -25,6 +27,8 @@ class ParserClient:
         self._semaphore = asyncio.Semaphore(
             config.max_concurrency
         )
+
+        self.users = UsersResource(self)
 
     async def close(self):
         await self._session.close()
@@ -81,7 +85,7 @@ class ParserClient:
         headers = kwargs.pop("headers", {})
 
         headers.update({
-            "Authorization": f"Bearer {token}",
+            "authorization": f"{token}",
             "User-Agent": "socapi",
         })
         kwargs["headers"] = headers
