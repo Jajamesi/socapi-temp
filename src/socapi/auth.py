@@ -11,6 +11,7 @@ class AuthManager:
         api_url,
         username,
         password,
+        tracer
     ):
         self._session = session
         self._api_url = api_url
@@ -22,6 +23,7 @@ class AuthManager:
         self._expires_at = datetime.min
 
         self._lock = asyncio.Lock()
+        self.tracer = tracer
 
     def _is_valid(self):
         return (
@@ -30,6 +32,7 @@ class AuthManager:
         )
 
     async def get_token(self):
+        self.tracer.add(name="get_token", method="None", url="None")
         if self._is_valid():
             return self._token
 
@@ -47,6 +50,7 @@ class AuthManager:
             await self._login()
 
     async def _login(self):
+        self.tracer.add(name="_login", method="POST", url=Endpoints.login)
         async with self._session.post(
             f"{self._api_url}{Endpoints.login}",
             json = auth.LoginPayload(
