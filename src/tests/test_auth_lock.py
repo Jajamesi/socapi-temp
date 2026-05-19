@@ -15,6 +15,7 @@ import socapi.session as ses
 
 import socapi.client as cl
 from socapi.auth import AuthManager
+from socapi.tracer import Tracer
 
 
 @pytest.mark.asyncio
@@ -25,6 +26,7 @@ async def test_auth_lock_allows_single_login():
         api_url="http://test",
         username="user",
         password="pass",
+        tracer=Tracer(enable=True)
     )
 
     login_calls = 0

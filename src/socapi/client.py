@@ -10,6 +10,7 @@ from .session import create_session
 from .models.endpoints import EndpointType, Endpoints
 
 from .resources.users import UsersResource
+from .tracer import Tracer
 
 class ParserClient:
     def __init__(self, config: ParserConfig):
@@ -17,11 +18,14 @@ class ParserClient:
 
         self._session = create_session(config)
 
+        self.tracer = Tracer(enable=config.enable_tracer)
+
         self._auth = AuthManager(
             session=self._session,
             api_url=config.constructor.api_url,
             username=config.username,
             password=config.password,
+            tracer=self.tracer,
         )
 
         self._semaphore = asyncio.Semaphore(
@@ -29,6 +33,7 @@ class ParserClient:
         )
 
         self.users = UsersResource(self)
+
 
     async def close(self):
         await self._session.close()
@@ -80,6 +85,7 @@ class ParserClient:
             url,
             **kwargs,
     ):
+        self.tracer.add(name="_request_with_auth", method= method, url= url)
         token = await self._auth.get_token()
 
         headers = kwargs.pop("headers", {})
