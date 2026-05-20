@@ -1,8 +1,9 @@
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from socapi.client import ParserClient
+from urllib.parse import urljoin
 
-from socapi.models.endpoints import Endpoints, EndpointType, FuncEndpoints
+from socapi.models.endpoints import Endpoint, EndpointType, Actions
 from socapi.models.users import User, UserGetPayload
 from socapi.resources.resource import Resource
 
@@ -12,7 +13,7 @@ class UsersResource(Resource):
         response = await self._client.request(
             method="POST",
             endpoint_type=EndpointType.API,
-            url=Endpoints.profile
+            url=Actions.profile
         )
 
         js = await response.json()
@@ -26,7 +27,7 @@ class UsersResource(Resource):
         response = await self._client.request(
             method="POST",
             endpoint_type=EndpointType.API,
-            url=f"{Endpoints.user}{FuncEndpoints.get}",
+            url=urljoin(Endpoint.user, Actions.get),
             json=UserGetPayload(limit=limit, offset=offset).model_dump()
         )
 

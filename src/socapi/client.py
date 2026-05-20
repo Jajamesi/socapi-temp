@@ -3,18 +3,21 @@
 # client.py
 from typing import List, Optional
 
+from urllib.parse import urljoin
+
 import asyncio
 
 from .auth import AuthManager
 from .config import ParserConfig
 
 from .session import create_session
-from .models.endpoints import EndpointType, Endpoints
+from .models.endpoints import EndpointType, Endpoint
 
 from .resources.users import UsersResource
 from .resources.roles import RolesResource, Role
 from .resources.polls import PollResource, PollStatus
 from .resources.meta import MetaResource
+from .resources.questions import QuestionResource
 from .tracer import Tracer
 
 class ParserClient:
@@ -42,10 +45,12 @@ class ParserClient:
         self.role_data: Optional[List[Role]] = None
         self.meta_data = None
 
+        # resources
         self.users = UsersResource(self)
         self.roles = RolesResource(self)
         self.polls = PollResource(self)
         self.meta = MetaResource(self)
+        self.questions = QuestionResource(self)
 
 
     async def close(self):
@@ -130,7 +135,7 @@ class ParserClient:
 
         return await self._session.request(
             method,
-            f"{base_url}{url}",
+            urljoin(base_url, url),
             **kwargs,
         )
 
@@ -141,3 +146,5 @@ class ParserClient:
             self.polls.get_poll_statuses(),
             self.meta.get_meta()
         )
+
+

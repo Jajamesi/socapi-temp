@@ -9,7 +9,8 @@ load_dotenv()
 
 import socapi.config as sc
 import socapi.client as cl
-from socapi.models.endpoints import Endpoints
+from socapi.models.endpoints import Endpoint, Actions
+
 
 @pytest.mark.asyncio
 async def test_async_load():
@@ -31,6 +32,6 @@ async def test_async_load():
 
     login_counts = 0
     for trace in client.tracer.traces:
-        if trace.url == Endpoints.login:
+        if trace.url == Actions.login:
             login_counts += 1
     assert login_counts == 1

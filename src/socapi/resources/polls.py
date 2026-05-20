@@ -2,10 +2,10 @@ from typing import TYPE_CHECKING, List, Optional, Dict
 
 if TYPE_CHECKING:
     from socapi.client import ParserClient
-
+from urllib.parse import urljoin
 from datetime import datetime
 
-from socapi.models.endpoints import Endpoints, EndpointType, FuncEndpoints
+from socapi.models.endpoints import Endpoint, EndpointType, Actions
 from socapi.models.polls import Poll, PollStatus
 from socapi.resources.resource import Resource
 
@@ -15,7 +15,7 @@ class PollResource(Resource):
         response = await self._client.request(
             method="POST",
             endpoint_type=EndpointType.API,
-            url=f"{Endpoints.poll}{FuncEndpoints.status}{FuncEndpoints.get}"
+            url=f"{Endpoint.poll}{Endpoint.status}{Actions.get}"
         )
 
         js = await response.json()
@@ -40,11 +40,20 @@ class PollResource(Resource):
         pass
 
 
+    async def get_poll_full(self, poll_id: int) -> Poll:
+        pass
+
+
     async def get_poll(self, poll_id: int) -> Poll:
+        """
+        Set of partial requests
+        :param poll_id:
+        :return:
+        """
         response = await self._client.request(
             method="POST",
             endpoint_type=EndpointType.API,
-            url=f"{Endpoints.poll}{FuncEndpoints.full}",
+            url=urljoin(Endpoint.poll, Actions.full),
             json={"id": poll_id}
         )
 

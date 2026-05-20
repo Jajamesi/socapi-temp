@@ -3,10 +3,11 @@ from operator import gt
 
 from pydantic import BaseModel, model_validator, computed_field, field_validator, ValidationError, Field
 from typing import Optional, Literal, Union, List, LiteralString, Dict
+from urllib.parse import urljoin
+
 from .models.endpoints import EndpointType
 
-
-ConstructorName = Literal[
+ConstructorHost = Literal[
     "online-sociology.ru",
     "opinion-world.com",
 ]
@@ -18,25 +19,25 @@ class Constructor(BaseModel):
         Provides base URLs
 
     """
-    name: ConstructorName
+    name: ConstructorHost
 
 
     @computed_field
     @property
     def base_url(self) -> str:
-        return f"https://{self.name}"
+        return f"https://{self.name}/"
 
 
     @computed_field
     @property
     def admin_url(self) -> str:
-        return f"https://admin.{self.name}"
+        return f"https://admin.{self.name}/"
 
 
     @computed_field
     @property
     def api_url(self) -> str:
-        return f"{self.admin_url}/api"
+        return urljoin(self.admin_url, "api/")
 
 
     @computed_field
@@ -57,7 +58,7 @@ class ParserConfig(BaseModel):
         Shared config properties and internal Constructor class
 
     """
-    constructor: Union[ConstructorName, Constructor]
+    constructor: Union[ConstructorHost, Constructor]
     username: str
     password: str
 
