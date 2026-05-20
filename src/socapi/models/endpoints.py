@@ -20,7 +20,6 @@ class Actions(StrEnum):
     get = "get"
     delete = "api"
     list = "list"
-
     full = "full"
     get_by_poll = "getbypoll"
     get_by_block = "getbyblock"

@@ -1,8 +1,9 @@
-from typing import TYPE_CHECKING, List, Optional, Dict
+from typing import TYPE_CHECKING, List, Optional, Dict, Literal
 
 if TYPE_CHECKING:
     from socapi.client import ParserClient
 
+from operator import attrgetter
 from datetime import datetime
 from urllib.parse import urljoin
 from enum import StrEnum, IntEnum
@@ -37,9 +38,6 @@ DEFAULT_QUESTION_INCLUDE_PAYLOAD = [
 
 class QuestionResource(Resource):
 
-    async def get_questions(self):
-        pass
-
     async def _get_questions_by_poll(self, poll_id: int) -> List[Question]:
         response = await self._client.request(
             method="POST",
@@ -53,7 +51,10 @@ class QuestionResource(Resource):
 
         response_result = await get_json_result(response)
 
-        return [Question(**i) for i in response_result]
+        return sorted(
+            (Question(**i) for i in response_result),
+            key=attrgetter("block_id", "order"),
+        )
 
     async def _get_questions_by_block(self, block_id: int) -> List[Question]:
         response = await self._client.request(
@@ -68,7 +69,17 @@ class QuestionResource(Resource):
 
         response_result = await get_json_result(response)
 
-        return [Question(**i) for i in response_result]
+        return sorted(
+            (Question(**i) for i in response_result),
+            key=attrgetter("order"),
+        )
+
+    async def get_questions(self, parent_id: int, mode: Literal["poll", "block"]) -> List[Question]:
+        functions = {
+            "poll": self._get_questions_by_poll,
+            "block": self._get_questions_by_block
+        }
+        return await functions.get(mode, None)(parent_id)
 
     async def update_question(self, question: Question) -> Question:
         pass
