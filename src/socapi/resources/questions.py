@@ -56,7 +56,19 @@ class QuestionResource(Resource):
         return [Question(**i) for i in response_result]
 
     async def _get_questions_by_block(self, block_id: int) -> List[Question]:
-        pass
+        response = await self._client.request(
+            method="POST",
+            endpoint_type=EndpointType.API,
+            url=urljoin(Endpoint.question, Actions.get_by_block),
+            json={
+                "block_id": block_id,
+                "includes": DEFAULT_QUESTION_INCLUDE_PAYLOAD
+            }
+        )
+
+        response_result = await get_json_result(response)
+
+        return [Question(**i) for i in response_result]
 
     async def update_question(self, question: Question) -> Question:
         pass
