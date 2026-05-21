@@ -18,6 +18,7 @@ from .resources.roles import RolesResource, Role
 from .resources.polls import PollResource, PollStatus
 from .resources.meta import MetaResource
 from .resources.questions import QuestionResource
+from .resources.blocks import BlockResource
 from .tracer import Tracer
 
 class ParserClient:
@@ -51,6 +52,7 @@ class ParserClient:
         self.polls = PollResource(self)
         self.meta = MetaResource(self)
         self.questions = QuestionResource(self)
+        self.blocks = BlockResource(self)
 
 
     async def close(self):

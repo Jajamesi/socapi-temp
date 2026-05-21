@@ -13,6 +13,7 @@ class Endpoint(StrEnum):
     meta = 'meta/'
     question = 'question/'
     status = "status/"
+    block = "block/"
 
 class Actions(StrEnum):
     profile = 'profile'
