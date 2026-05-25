@@ -6,17 +6,24 @@ class EndpointType(StrEnum):
     API = "api"
     ADMIN = "admin"
 
-class Endpoints(StrEnum):
-    login = '/login'
-    profile = '/profile'
-    user = '/user'
-    role = '/role'
-    poll = '/poll'
-    meta = '/meta'
+class Endpoint(StrEnum):
+    user = 'user/'
+    role = 'role/'
+    poll = 'poll/'
+    meta = 'meta/'
+    question = 'question/'
+    status = "status/"
+    block = "block/"
+    page = "page/"
+    counter = "counter/"
 
-class FuncEndpoints(StrEnum):
-    get = "/get"
-    delete = "/api"
-    list = "/list"
-    status = "/status"
-    full = "/full"
+class Actions(StrEnum):
+    profile = 'profile'
+    login = 'login'
+    get = "get"
+    delete = "api"
+    list = "list"
+    full = "full"
+    get_by_poll = "getbypoll"
+    get_by_block = "getbyblock"
+    get_all = "getall"

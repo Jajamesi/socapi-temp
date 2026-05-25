@@ -1,18 +1,26 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, List
+
 if TYPE_CHECKING:
     from socapi.client import ParserClient
+from urllib.parse import urljoin
 
-from socapi.models.endpoints import Endpoints, EndpointType, FuncEndpoints
+from socapi.models.endpoints import Endpoint, EndpointType, Actions
 from socapi.models.users import User, UserGetPayload
 from socapi.resources.resource import Resource
 
 
 class UsersResource(Resource):
-    async def get_current_user(self):
+    """
+    Represents profile and user/get resources.
+    Profile provide data on active user.
+    User/get allows to send different fields in body to get list of users.
+    """
+
+    async def get_current_user(self) -> User:
         response = await self._client.request(
             method="POST",
             endpoint_type=EndpointType.API,
-            url=Endpoints.profile
+            url=Actions.profile
         )
 
         js = await response.json()
@@ -22,11 +30,11 @@ class UsersResource(Resource):
         return User(**user_data)
 
 
-    async def get_users(self, limit: int = 11, offset: int = 0):
+    async def get_users(self, limit: int = 11, offset: int = 0) -> List[User]:
         response = await self._client.request(
             method="POST",
             endpoint_type=EndpointType.API,
-            url=f"{Endpoints.user}{FuncEndpoints.get}",
+            url=urljoin(Endpoint.user, Actions.get),
             json=UserGetPayload(limit=limit, offset=offset).model_dump()
         )
 
@@ -35,3 +43,20 @@ class UsersResource(Resource):
         users_data = js.get("result", {})
 
         return [User(**user_data) for user_data in users_data]
+
+
+    async def get_user(self, **kwargs) -> Optional[User]:
+        response = await self._client.request(
+            method="POST",
+            endpoint_type=EndpointType.API,
+            url=urljoin(Endpoint.user, Actions.get),
+            json={**kwargs}
+        )
+
+        js = await response.json()
+
+        users_data = js.get("result", {})
+
+        if users_data:
+            return User(**users_data[0])
+        return None

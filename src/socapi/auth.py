@@ -1,7 +1,8 @@
 import asyncio
 from datetime import datetime, timedelta
+from urllib.parse import urljoin
 
-from .models.endpoints import Endpoints
+from .models.endpoints import Endpoint, Actions
 from .models import auth
 
 class AuthManager:
@@ -50,9 +51,9 @@ class AuthManager:
             await self._login()
 
     async def _login(self):
-        self.tracer.add(name="_login", method="POST", url=Endpoints.login)
+        self.tracer.add(name="_login", method="POST", url=Actions.login)
         async with self._session.post(
-            f"{self._api_url}{Endpoints.login}",
+            urljoin(self._api_url, Actions.login),
             json = auth.LoginPayload(
                 login=self._username,
                 password=self._password

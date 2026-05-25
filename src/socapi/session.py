@@ -3,7 +3,7 @@
 import aiohttp
 
 
-def create_session(config):
+def create_session(config) -> aiohttp.ClientSession:
     timeout = aiohttp.ClientTimeout(
         total=config.timeout
     )

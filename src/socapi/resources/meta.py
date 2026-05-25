@@ -1,8 +1,9 @@
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from socapi.client import ParserClient
+from urllib.parse import urljoin
 
-from socapi.models.endpoints import Endpoints, EndpointType, FuncEndpoints
+from socapi.models.endpoints import Endpoint, EndpointType, Actions
 from socapi.models.meta import Meta, ChildMeta
 from socapi.resources.resource import Resource
 
@@ -12,7 +13,7 @@ class MetaResource(Resource):
         response = await self._client.request(
             method="POST",
             endpoint_type=EndpointType.API,
-            url=f"{Endpoints.meta}{FuncEndpoints.full}"
+            url=urljoin(Endpoint.meta, Actions.full)
         )
 
         js = await response.json()
