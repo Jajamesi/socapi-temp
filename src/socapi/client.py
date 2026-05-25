@@ -10,6 +10,7 @@ import asyncio
 from .auth import AuthManager
 from .config import ParserConfig
 
+
 from .session import create_session
 from .models.endpoints import EndpointType, Endpoint
 
@@ -19,6 +20,8 @@ from .resources.polls import PollResource, PollStatus
 from .resources.meta import MetaResource
 from .resources.questions import QuestionResource
 from .resources.blocks import BlockResource
+from .resources.pages import PageResource
+
 from .tracer import Tracer
 
 class ParserClient:
@@ -53,6 +56,7 @@ class ParserClient:
         self.meta = MetaResource(self)
         self.questions = QuestionResource(self)
         self.blocks = BlockResource(self)
+        self.pages = PageResource(self)
 
 
     async def close(self):

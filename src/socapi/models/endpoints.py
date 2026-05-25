@@ -14,6 +14,7 @@ class Endpoint(StrEnum):
     question = 'question/'
     status = "status/"
     block = "block/"
+    page = "page/"
 
 class Actions(StrEnum):
     profile = 'profile'
@@ -24,3 +25,4 @@ class Actions(StrEnum):
     full = "full"
     get_by_poll = "getbypoll"
     get_by_block = "getbyblock"
+    get_all = "getall"
