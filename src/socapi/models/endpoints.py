@@ -15,6 +15,7 @@ class Endpoint(StrEnum):
     status = "status/"
     block = "block/"
     page = "page/"
+    counter = "counter/"
 
 class Actions(StrEnum):
     profile = 'profile'

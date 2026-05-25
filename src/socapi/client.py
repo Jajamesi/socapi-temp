@@ -48,6 +48,7 @@ class ParserClient:
         self.poll_statuses: Optional[List[PollStatus]] = None
         self.role_data: Optional[List[Role]] = None
         self.meta_data = None
+        self.user_data = None
 
         # resources
         self.users = UsersResource(self)

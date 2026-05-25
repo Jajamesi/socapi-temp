@@ -1,19 +1,76 @@
 from typing import Optional, List, Any
 from datetime import datetime
-from enum import StrEnum
+from enum import StrEnum, Enum, IntEnum
 from pydantic import BaseModel, Field, ConfigDict
 from uuid import UUID
 
 from .counters import Counter
 from . import logic
+from .questions import Question
+from .users import User
+
+
+class PollType(BaseModel):
+    id: int
+    name: str
+    disabled: bool
+
+
+class PollTypes:
+    all_at_once = PollType(id=1, name="Отображение респонденту всех вопросов сразу", disabled=False)
+    by_block = PollType(id=2, name="Отображение опроса по блокам", disabled=False)
+    one_question  = PollType(id=3, name="Отображение опроса по одному вопросу", disabled=False)
+
+    _map = {
+        "all_at_once": all_at_once,
+        "by_block": by_block,
+        "one_question": one_question ,
+    }
+
+    @classmethod
+    def from_str(cls, value: str) -> PollType:
+        return cls._map[value]
+
 
 class PollStatus(BaseModel):
     id: int
     name: str
     disabled: bool
 
+
+class PollStatuses:
+    active = PollStatus(id=1, name="Активный", disabled=False)
+    closed = PollStatus(id=4, name="Завершенный", disabled=False)
+    published = PollStatus(id=3, name="Опубликован", disabled=False)
+    deleted = PollStatus(id=2, name="Удаленный", disabled=False)
+
+    _map = {
+        "active": active,
+        "closed": closed,
+        "published": published,
+        "deleted": deleted,
+    }
+
+    @classmethod
+    def from_str(cls, value: str) -> PollStatus:
+        return cls._map[value]
+
+
+class Language(IntEnum):
+    rus = 1
+    eng = 2
+
+
 class Block(BaseModel):
-    pass
+    id: int
+    order: int
+    name: str
+    title: str
+    description: str
+    created_at: datetime
+    poll_id: int
+    questions: List[Question]
+    is_panel: bool = False
 
 class PageData(BaseModel):
     title: str
@@ -62,7 +119,11 @@ class Poll(BaseModel):
     source_id: Optional[str] = None
     state_id: int = 0
     logic_panel: None = None # what's this?
+    language_id: int = 1 # Russian
 
+
+    # utility properties todo
+    user: Optional[User] = Field(default=None)
 
 
 
