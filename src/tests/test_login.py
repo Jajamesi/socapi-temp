@@ -1,59 +1,72 @@
+
 import pytest
-from pydantic import ValidationError
-import aiohttp
 
+import dotenv
+dotenv.load_dotenv()
 import os
-from dotenv import load_dotenv
-load_dotenv()
 
-import socapi.config as sc
-import socapi.session as ses
+import socapi
 
-import socapi.client as cl
-
-@pytest.mark.asyncio
-async def test_login_success():
-    config = sc.ParserConfig(
-        constructor=os.environ["CONSTRUCTOR_NAME"],
-        username=os.environ["USERNAME"],
-        password=os.environ["PASSWORD"]
-    )
-
-    client = cl.ParserClient(config=config)
-
-    async with client:
-        await client._auth._login()
-
-    assert client._auth._token is not None
+login=os.getenv("LOGIN", "")
+password= os.getenv("PASSWORD", "")
 
 
-@pytest.mark.asyncio
-async def test_login_wrong_username():
-    with pytest.raises(aiohttp.ClientResponseError) as exc:
+@pytest.mark.parametrize(
+    "login,password,expected_exception",
+    [
+        pytest.param(
+            login,
+            password,
+            None,
+            id="valid-login-password",
+        ),
+        pytest.param(
+            None,
+            None,
+            ValueError,
+            id="no-credentials",
+        ),
+        pytest.param(
+            "user",
+            None,
+            ValueError,
+            id="login-without-password",
+        ),
+        pytest.param(
+            None,
+            "password",
+            ValueError,
+            id="password-without-login",
+        ),
+        pytest.param(
+            login,
+            "password",
+            socapi.exceptions.InvalidCredentialsError,
+            id="wrong-password",
+        ),
+        pytest.param(
+            "login",
+            password,
+            socapi.exceptions.InvalidCredentialsError,
+            id="wrong-login",
+        ),
+    ],
+)
+async def test_credentials_authorize(mocker, login, password, expected_exception):
 
-        config = sc.ParserConfig(
-            constructor=os.environ["CONSTRUCTOR_NAME"],
-            username="wrong username",
-            password=os.environ["PASSWORD"]
-        )
+    async def run_auth():
+        async with socapi.ParserClient(login=login, password=password, host="online-sociology.ru") as client:
+            auth_spy = mocker.spy(client, "_request")
 
-        client = cl.ParserClient(config=config)
+            await client._authorize()
 
-        async with client:
-            await client._auth._login()
+            assert isinstance(client.access_token, str)
+            assert auth_spy.await_count == 1
 
 
-@pytest.mark.asyncio
-async def test_login_wrong_username_and_password():
-    with pytest.raises(aiohttp.ClientResponseError) as exc:
+    if expected_exception:
+        with pytest.raises(expected_exception):
+            await run_auth()
 
-        config = sc.ParserConfig(
-            constructor=os.environ["CONSTRUCTOR_NAME"],
-            username="wrong username",
-            password="wrong password"
-        )
-
-        client = cl.ParserClient(config=config)
-
-        async with client:
-            await client._auth._login()
+    else:
+        await run_auth()

@@ -1,11 +1,11 @@
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from socapi.client import ParserClient
+    pass
 from urllib.parse import urljoin
 
-from socapi.models.endpoints import Endpoint, EndpointType, Actions
-from socapi.models.meta import Meta, ChildMeta
-from socapi.resources.resource import Resource
+from old.models.endpoints import Endpoint, EndpointType, Actions
+from old.models.meta import Meta
+from old.resources.resource import Resource
 
 class MetaResource(Resource):
 

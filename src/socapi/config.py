@@ -1,11 +1,44 @@
 from email.policy import default
 from operator import gt
 
+
 from pydantic import BaseModel, model_validator, computed_field, field_validator, ValidationError, Field
 from typing import Optional, Literal, Union, List, LiteralString, Dict
 from urllib.parse import urljoin
+from enum import StrEnum
 
-from .models.endpoints import EndpointType
+
+class EndpointType(StrEnum):
+    BASE = "base"
+    API = "api"
+    ADMIN = "admin"
+
+class Endpoint(StrEnum):
+    login = "/api/login"
+    profile = "api/profile"
+    user_get = "/api/user/get"
+    page_get = "/api/page/getall"
+    poll_header_get = "/api/poll/get"
+    blocks_by_poll_get = "/api/block/getbypoll"
+    questions_by_block_get = "/api/question/getbyblock"
+    export_poll = "	/api/poll/stat/export"
+    progress = "/api/poll/stat/export/progress"
+    download_poll = "/api/poll/stat/export/progress/download"
+    done_poll = "/api/poll/stat/export/progress/done"
+
+
+
+
+    user = 'user/'
+    role = 'role/'
+    poll = 'poll/'
+    meta = 'meta/'
+    question = 'question/'
+    status = "status/"
+    block = "block/"
+    page = "page/"
+    counter = "counter/"
+
 
 ConstructorHost = Literal[
     "online-sociology.ru",
@@ -36,47 +69,40 @@ class Constructor(BaseModel):
 
     @computed_field
     @property
-    def api_url(self) -> str:
-        return urljoin(self.admin_url, "api/")
-
-
-    @computed_field
-    @property
     def base_urls(self) -> Dict[EndpointType, str]:
         return {
             EndpointType.BASE: self.base_url,
-            EndpointType.API: self.api_url,
             EndpointType.ADMIN: self.admin_url,
         }
 
 
 
-
-class ParserConfig(BaseModel):
-    """
-        Core config for sequential requests
-        Shared config properties and internal Constructor class
-
-    """
-    constructor: Union[ConstructorHost, Constructor]
-    username: str
-    password: str
-
-    max_concurrency: int = Field(default=10, gt=0, le=10, description="general max concurency")
-    download_concurrency: int = Field(default=3, gt=0, le=5, description="to avoid backend overload")
-    timeout: int = Field(default=30, gt=0, le=600)
-    request_cooldown: float = Field(default=0.01, gt=0, le=20, description="request between cooldowns to avoid backend overload")
-    enable_tracer: bool = True
-    verify_ssl: bool = True
-
-    @field_validator('constructor', mode='before')
-    @classmethod
-    def validate_constructor(cls, value) -> Constructor:
-        if isinstance(value, Constructor):
-            return value
-        elif isinstance(value, str):
-            try:
-                return Constructor(name=value)
-            except:
-                raise
-        raise ValidationError("constructor must be string or Constructor")
+#
+# class ParserConfig(BaseModel):
+#     """
+#         Core config for sequential requests
+#         Shared config properties and internal Constructor class
+#
+#     """
+#     constructor: Union[ConstructorHost, Constructor]
+#     username: str
+#     password: str
+#
+#     max_concurrency: int = Field(default=10, gt=0, le=10, description="general max concurency")
+#     download_concurrency: int = Field(default=3, gt=0, le=5, description="to avoid backend overload")
+#     timeout: int = Field(default=30, gt=0, le=600)
+#     request_cooldown: float = Field(default=0.01, gt=0, le=20, description="request between cooldowns to avoid backend overload")
+#     enable_tracer: bool = True
+#     verify_ssl: bool = True
+#
+#     @field_validator('constructor', mode='before')
+#     @classmethod
+#     def validate_constructor(cls, value) -> Constructor:
+#         if isinstance(value, Constructor):
+#             return value
+#         elif isinstance(value, str):
+#             try:
+#                 return Constructor(name=value)
+#             except:
+#                 raise
+#         raise ValidationError("constructor must be string or Constructor")

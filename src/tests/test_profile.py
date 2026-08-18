@@ -1,61 +1,19 @@
+
 import pytest
-from pydantic import ValidationError
-import aiohttp
 
+import dotenv
+dotenv.load_dotenv()
 import os
-from dotenv import load_dotenv
-load_dotenv()
 
-import socapi.config as sc
-import socapi.session as ses
+import socapi
+from socapi.resources import user
 
-import socapi.client as cl
+login=os.getenv("LOGIN", "")
+password= os.getenv("PASSWORD", "")
+
 
 @pytest.mark.asyncio
-async def test_profile_success():
-    config = sc.ParserConfig(
-        constructor=os.environ["CONSTRUCTOR_NAME"],
-        username=os.environ["USERNAME"],
-        password=os.environ["PASSWORD"]
-    )
-
-    client = cl.ParserClient(config=config)
-
-    async with client:
-        me = await client.users.get_current_user()
-
-    assert me.id is not None
-
-
-
-
-# @pytest.mark.asyncio
-# async def test_login_wrong_username():
-#     with pytest.raises(aiohttp.ClientResponseError) as exc:
-#
-#         config = sc.ParserConfig(
-#             constructor=os.environ["CONSTRUCTOR_NAME"],
-#             username="wrong username",
-#             password=os.environ["PASSWORD"]
-#         )
-#
-#         client = cl.ParserClient(config=config)
-#
-#         async with client:
-#             await client._auth._login()
-#
-#
-# @pytest.mark.asyncio
-# async def test_login_wrong_username_and_password():
-#     with pytest.raises(aiohttp.ClientResponseError) as exc:
-#
-#         config = sc.ParserConfig(
-#             constructor=os.environ["CONSTRUCTOR_NAME"],
-#             username="wrong username",
-#             password="wrong password"
-#         )
-#
-#         client = cl.ParserClient(config=config)
-#
-#         async with client:
-#             await client._auth._login()
+async def test_profile(mocker):
+    async with socapi.ParserClient(login=login, password=password, host="online-sociology.ru") as client:
+        result = await client.user.profile()
+        assert isinstance(result, user.User)

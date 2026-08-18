@@ -1,1 +1,2 @@
-from .client import ParserClient, ParserConfig
+from .client import ParserClient
+from . import exceptions
