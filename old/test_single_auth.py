@@ -1,6 +1,4 @@
 import pytest
-from pydantic import ValidationError
-import aiohttp
 import asyncio
 
 import os
@@ -9,7 +7,7 @@ load_dotenv()
 
 import socapi.config as sc
 import socapi.client as cl
-from socapi.models.endpoints import Endpoint, Actions
+from old.models.endpoints import Actions
 
 
 @pytest.mark.asyncio

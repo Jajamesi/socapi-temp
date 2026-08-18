@@ -2,8 +2,9 @@ import asyncio
 from datetime import datetime, timedelta
 from urllib.parse import urljoin
 
-from .models.endpoints import Endpoint, Actions
-from .models import auth
+from old.models.endpoints import Actions
+from old.models import auth
+
 
 class AuthManager:
     def __init__(

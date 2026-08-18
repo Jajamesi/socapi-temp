@@ -1,31 +1,46 @@
-from typing import TYPE_CHECKING, List, Optional, Dict, Literal
+from enum import IntEnum
 
-if TYPE_CHECKING:
-    from socapi.client import ParserClient
-
-from operator import attrgetter
+from pydantic import BaseModel, Field
+from typing import List, Optional
 from datetime import datetime
-from urllib.parse import urljoin
-from enum import StrEnum, IntEnum
+from .logic import InternalCondition
 
-from socapi.models.endpoints import Endpoint, EndpointType, Actions
-from socapi.models.counters import Counter
-from socapi.resources.resource import Resource
-from socapi.utils import get_json_result
+class PredicateTypes(IntEnum):
+    selected = 1
+    not_selected = 2
+    answered = 3
+    unanswered = 4
+
+class Predicate(BaseModel):
+    counter_id: int
+    counter_condition_id: int
+    predicate_id: PredicateTypes
+    poll_id: int
+    condition: InternalCondition # wtf?
+    deleted_at: Optional[datetime] = None
+
+class Condition(BaseModel):
+    id: int
+    counter_id: int
+    question_id: int
+    answer_ids: Optional[List[int]]
+    logic_join_condition: InternalCondition
+    created_at: Optional[datetime] = Field(default_factory=datetime.now)
+    deleted_at: Optional[datetime] = None
 
 
-class PageResource(Resource):
+    # add validation based on predicate
 
-    async def get_pages(self, poll_id: int) -> List[Counter]:
-        response = await self._client.request(
-            method="POST",
-            endpoint_type=EndpointType.API,
-            url=urljoin(Endpoint.counter, Actions.list),
-            json={
-                "poll_id": poll_id,
-            }
-        )
 
-        response_result = await get_json_result(response)
-
-        return [Counter(**i) for i in response_result]
+class Counter(BaseModel):
+    id: Optional[int] = None
+    name: str
+    description: str
+    hits: int = 0
+    order: int
+    quota: int = 0
+    is_disabled: bool = False
+    created_at: Optional[datetime] = Field(default_factory=datetime.now)
+    deleted_at: Optional[datetime] = None
+    conditions: Optional[List[Condition]] = None
+    source_ids: Optional[List[int]] = Field(default=[])

@@ -1,105 +1,121 @@
-from typing import TYPE_CHECKING, List, Optional, Dict, Literal
-
-if TYPE_CHECKING:
-    from socapi.client import ParserClient
-
-from operator import attrgetter
+from typing import Optional, List, Any
 from datetime import datetime
-from urllib.parse import urljoin
 from enum import StrEnum, IntEnum
+from pydantic import BaseModel, Field, ConfigDict
+from uuid import UUID
+from ..text_worker import parse_text
 
-from socapi.models.endpoints import Endpoint, EndpointType, Actions
-from socapi.models.questions import Question
-from socapi.resources.resource import Resource
-from socapi.utils import get_json_result
-
-
-class QuestionIncludePayload(StrEnum):
-    TYPE_ID = "type_id"
-    ANSWERS = "answers"
-    ID = "id"
-    TITLE = "title"
-    BLOCK_ID = "block_id"
-    ORDER = "order"
-    OPTIONAL = "optional"
-    MAX_ANSWER = "max_answer"
-    MIN_ANSWER = "min_answer"
-    HAS_INPUT = "has_input"
-    CHILDREN = "children"
-    CHILDREN_TYPE_ID = "children.type_id"
-    CHILDREN_ANSWERS = "children.answers"
+class AnswerTypes(IntEnum):
+    single_answer = 1                  # Один ответ
+    dropdown = 2                       # Выпадающий список
+    single_answer_per_row = 3          # Один ответ по строке
+    multiple_choice = 4                # Множественный выбор
+    open_question = 7                  # Открытый вопрос
+    ranking = 8                        # Ранжирование
+    slider = 9                         # Ползунок
+    multiple_choice_per_row = 10       # Множественный выбор по строке
+    info_material = 11                 # Ознакомительный материал
+    email_request = 12                 # Запрос почты
 
 
-DEFAULT_QUESTION_INCLUDE_PAYLOAD = [
-    item.value
-    for item in QuestionIncludePayload
-]
+class Measures(StrEnum):
+    nominal="nominal"
+    scale="scale"
+    ordered="ordered"
 
 
-class QuestionResource(Resource):
+class InputValidations(StrEnum):
+    text="text"
+    email="email"
+    number="number"
+    date_time="mask|99.99.99 99:99"
+    date = "mask|99.99.99"
+    time="mask|99:99"
+    date_time_from_to="mask|99.99.99 99:99 до 99.99.99 99:99"
+    date_from_to = "mask|99.99.99 до 99.99.99"
+    time_from_to = "mask|99:99 до 99:99"
+    phone="mask|8 (999) 999-99-99"
+    none=""
 
-    async def _get_questions_by_poll(self, poll_id: int) -> List[Question]:
-        response = await self._client.request(
-            method="POST",
-            endpoint_type=EndpointType.API,
-            url=urljoin(Endpoint.question, Actions.get_by_poll),
-            json={
-                "poll_id": poll_id,
-                "includes": DEFAULT_QUESTION_INCLUDE_PAYLOAD
-            }
-        )
 
-        response_result = await get_json_result(response)
+class Answer(BaseModel):
+    id: Optional[int]=None
+    order: int
+    title: str
+    has_input: bool = False
+    skip_randomize: bool = False
+    exclude_answer: bool = False
+    optional: bool = False
+    question_id: int
+    input_validation: InputValidations
+    is_panel: bool = False
 
-        return sorted(
-            (Question(**i) for i in response_result),
-            key=attrgetter("block_id", "order"),
-        )
+    @property
+    def human_title(self) -> str:
+        return parse_text(self.title)
 
-    async def _get_questions_by_block(self, block_id: int) -> List[Question]:
-        response = await self._client.request(
-            method="POST",
-            endpoint_type=EndpointType.API,
-            url=urljoin(Endpoint.question, Actions.get_by_block),
-            json={
-                "block_id": block_id,
-                "includes": DEFAULT_QUESTION_INCLUDE_PAYLOAD
-            }
-        )
 
-        response_result = await get_json_result(response)
+class ChildQuestion(BaseModel):
+    created_at: Optional[datetime] = None
+    title: str
+    answer_type: str = ""
+    condition_type: str = ""
+    id: Optional[int] = None
+    parent_id: Optional[int] = None
+    updated_at: Optional[datetime] = None
+    measure: Measures
+    type_id: AnswerTypes
+    max_answer: int
+    min_answer: int
+    order: int
+    status_id: int = 1 # ?
 
-        return sorted(
-            (Question(**i) for i in response_result),
-            key=attrgetter("order"),
-        )
+    optional: bool  = False
+    has_input: bool  = False
+    input_validation: InputValidations = InputValidations.none
+    randomized: bool = False
+    transpose: bool = False
+    display_labels: bool = False
+    children_randomized: bool = False
+    is_panel: bool = False
 
-    async def get_questions(self, parent_id: int, mode: Literal["poll", "block"]) -> List[Question]:
-        functions = {
-            "poll": self._get_questions_by_poll,
-            "block": self._get_questions_by_block
-        }
-        return await functions.get(mode, None)(parent_id)
+    block_id: int = Field(default=0, init=False)
+    children: List = Field(default_factory=list, init=False)
 
-    async def update_question(self, question: Question) -> Question:
-        pass
+    @property
+    def human_title(self) -> str:
+        return parse_text(self.title)
 
-    async def create_question(self, question: Question) -> Question:
-        pass
 
-    async def delete_question(self, question_id: int) -> Question:
-        pass
 
-    # async def get_polls(
-    #         self,
-    #         limit: int = 11,
-    #         offset: int = 0,
-    #         is_in_track: bool = False,
-    #         meta: List[int] = None,
-    #         sociologist_id: int = None,
-    #         status_id: int = None,
-    #         targetologist_id: int = None,
-    #         from_date: Optional[datetime] = None,
-    #         to_date: Optional[datetime] = None,
-    # ) -> List[Poll]:
-    #     pass
+class Question(ChildQuestion):
+
+    answers: Optional[List[Answer]] = None
+    children: Optional[List[ChildQuestion]] = Field(default_factory=list)
+
+    parent_id: int = 0  # for children question otherwise 0
+    block_id: Optional[int] = None
+
+
+class QuestionInclude(StrEnum):
+    type_id = "type_id"
+    answers = "answers"
+    id = "id"
+    title = "title"
+    block_id = "block_id"
+    order = "order"
+    optional = "optional"
+    max_answer = "max_answer"
+    min_answer = "min_answer"
+    has_input = "has_input"
+    children = "children"
+    children_type_id = "children.type_id"
+    children_answers = "children.answers"
+
+ALL_QUESTION_INCLUDES = list(QuestionInclude)
+
+class GetQuestionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    block_id: int = Field(..., ge=1)
+    includes: list[QuestionInclude] = Field(default_factory=lambda: ALL_QUESTION_INCLUDES.copy())

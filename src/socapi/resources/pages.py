@@ -1,31 +1,40 @@
-from typing import TYPE_CHECKING, List, Optional, Dict, Literal
+from enum import IntEnum
 
-if TYPE_CHECKING:
-    from socapi.client import ParserClient
+from ..text_worker import parse_text
 
-from operator import attrgetter
-from datetime import datetime
-from urllib.parse import urljoin
-from enum import StrEnum, IntEnum
+from pydantic import BaseModel, Field, ConfigDict
 
-from socapi.models.endpoints import Endpoint, EndpointType, Actions
-from socapi.models.pages import Page
-from socapi.resources.resource import Resource
-from socapi.utils import get_json_result
+class PageData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    description: str
+
+    @property
+    def human_description(self) -> str:
+        return parse_text(self.description)
 
 
-class PageResource(Resource):
+class PageType(IntEnum):
+    GREETING = 1
+    FINISH=2
+    DISQUALIFICATION=3
 
-    async def get_pages(self, poll_id: int) -> List[Page]:
-        response = await self._client.request(
-            method="POST",
-            endpoint_type=EndpointType.API,
-            url=urljoin(Endpoint.page, Actions.get_all),
-            json={
-                "poll_id": poll_id,
-            }
-        )
 
-        response_result = await get_json_result(response)
+class Page(BaseModel):
+    """
+    returned by /api/page/getall
+    """
+    model_config = ConfigDict(extra="forbid")
 
-        return [Page(**i) for i in response_result]
+    id: int = Field(..., ge=1)
+    name: str
+    data: PageData
+    type_id: PageType = Field(..., ge=1)
+    poll_id: int = Field(..., ge=1)
+
+
+
+
+class GetPagesPayload(BaseModel):
+    poll_id: int = Field(..., ge=1)

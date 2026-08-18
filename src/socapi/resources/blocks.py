@@ -1,48 +1,36 @@
-from typing import TYPE_CHECKING, List, Optional, Dict, Literal
-
-if TYPE_CHECKING:
-    from socapi.client import ParserClient
-
-from operator import attrgetter
+from typing import Optional, List, Any
 from datetime import datetime
-from urllib.parse import urljoin
 from enum import StrEnum, IntEnum
+from pydantic import BaseModel, Field, ConfigDict
+from uuid import UUID
 
-from socapi.models.endpoints import Endpoint, EndpointType, Actions
-from socapi.models.blocks import Block
-from socapi.resources.resource import Resource
-from socapi.utils import get_json_result
-
-
-class BlockIncludePayload(StrEnum):
-    ID = "id"
-    NAME = "name"
-    TITLE = "title"
-    DESCRIPTION = "description"
-    POLL_ID = "poll_id"
-    ORDER = "order"
-    QUESTIONS = "questions"
+from .questions import Question
 
 
-DEFAULT_BLOCK_INCLUDE_PAYLOAD = [
-    item.value
-    for item in BlockIncludePayload
-]
+class Block(BaseModel):
+    id: Optional[int] = None
+    order: int = Field(..., ge=1)
+    name: str
+    title: str = Field(default="")
+    description: str = Field(default="")
+    created_at: Optional[datetime] = None
+    questions: List[Question] | None = Field(default_factory=list)
+    poll_id: int
+    is_panel: bool = False
 
 
-class BlockResource(Resource):
+class BlockInclude(StrEnum):
+    id = "id"
+    name = "name"
+    title = "title"
+    description = "description"
+    poll_id = "poll_id"
+    order = "order"
 
-    async def get_blocks(self, poll_id: int) -> List[Block]:
-        response = await self._client.request(
-            method="POST",
-            endpoint_type=EndpointType.API,
-            url=urljoin(Endpoint.block, Actions.get_by_poll),
-            json={
-                "poll_id": poll_id,
-                "includes": DEFAULT_BLOCK_INCLUDE_PAYLOAD
-            }
-        )
+ALL_BLOCK_INCLUDES = list(BlockInclude)
 
-        response_result = await get_json_result(response)
+class GetBlocksPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-        return [Block(**i) for i in response_result]
+    poll_id: int = Field(..., ge=1)
+    includes: list[BlockInclude] = Field(default_factory=lambda: ALL_BLOCK_INCLUDES.copy())
