@@ -1,7 +1,11 @@
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from polls import Poll
+
 from typing import Optional, List, Any
 from datetime import datetime
 from enum import StrEnum, IntEnum
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, PrivateAttr
 from uuid import UUID
 from ..text_worker import parse_text
 
@@ -50,9 +54,18 @@ class Answer(BaseModel):
     input_validation: InputValidations
     is_panel: bool = False
 
+    _poll: Optional['Poll'] = PrivateAttr(default=None)
+
     @property
     def human_title(self) -> str:
         return parse_text(self.title)
+
+
+    @property
+    def display_answers(self):
+        if self._poll is None:
+            return []
+        return [l for l in self._poll.display_answers if l.answer_id == self.id]
 
 
 class ChildQuestion(BaseModel):
@@ -70,6 +83,8 @@ class ChildQuestion(BaseModel):
     order: int
     status_id: int = 1 # ?
 
+    _poll: Optional['Poll'] = PrivateAttr(default=None)
+
     optional: bool  = False
     has_input: bool  = False
     input_validation: InputValidations = InputValidations.none
@@ -85,6 +100,27 @@ class ChildQuestion(BaseModel):
     @property
     def human_title(self) -> str:
         return parse_text(self.title)
+
+
+    @property
+    def jumps(self):
+        if self._poll is None:
+            return []
+        return [l for l in self._poll.jumps if l.question_id == self.id]
+
+    @property
+    def displays(self):
+        if self._poll is None:
+            return []
+        return [l for l in self._poll.displays if l.question_id == self.id]
+
+    @property
+    def display_answers(self):
+        if self._poll is None:
+            return []
+        return [l for l in self._poll.display_answers if l.reference_question_id == self.id]
+
+
 
 
 
@@ -114,8 +150,15 @@ class QuestionInclude(StrEnum):
 
 ALL_QUESTION_INCLUDES = list(QuestionInclude)
 
-class GetQuestionPayload(BaseModel):
+class GetBlockQuestionPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     block_id: int = Field(..., ge=1)
+    includes: list[QuestionInclude] = Field(default_factory=lambda: ALL_QUESTION_INCLUDES.copy())
+
+
+class GetPollQuestionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    poll_id: int = Field(..., ge=1)
     includes: list[QuestionInclude] = Field(default_factory=lambda: ALL_QUESTION_INCLUDES.copy())

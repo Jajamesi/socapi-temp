@@ -21,10 +21,16 @@ class Endpoint(StrEnum):
     poll_header_get = "/api/poll/get"
     blocks_by_poll_get = "/api/block/getbypoll"
     questions_by_block_get = "/api/question/getbyblock"
+    questions_by_poll_get = "/api/question/getbypoll"
     export_poll = "	/api/poll/stat/export"
     progress = "/api/poll/stat/export/progress"
     download_poll = "/api/poll/stat/export/progress/download"
     done_poll = "/api/poll/stat/export/progress/done"
+
+    display_answer_logic_get = "/api/logic/display-answer/getbypoll"
+    jump_logic_get = "/api/logic/jump/getbypoll"
+    display_logic_get = "/api/logic/display/getbypoll"
+    counters_get = "/api/counter/list"
 
 
 

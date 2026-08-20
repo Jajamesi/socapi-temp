@@ -19,3 +19,12 @@ async def test_get_questions_by_block(mocker):
 
         assert isinstance(result, list)
         assert all(isinstance(item, questions.Question) for item in result)
+
+
+@pytest.mark.asyncio
+async def test_get_questions_by_poll(mocker):
+    async with socapi.ParserClient(login=login, password=password, host="online-sociology.ru") as client:
+        result = await client.question.get_poll_questions(poll_id=test_poll)
+
+        assert isinstance(result, list)
+        assert all(isinstance(item, questions.Question) for item in result)

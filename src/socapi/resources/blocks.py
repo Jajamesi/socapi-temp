@@ -1,7 +1,10 @@
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from polls import Poll
 from typing import Optional, List, Any
 from datetime import datetime
 from enum import StrEnum, IntEnum
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, PrivateAttr
 from uuid import UUID
 
 from .questions import Question
@@ -17,6 +20,8 @@ class Block(BaseModel):
     questions: List[Question] | None = Field(default_factory=list)
     poll_id: int
     is_panel: bool = False
+
+    _poll: Optional['Poll'] = PrivateAttr(default=None)
 
 
 class BlockInclude(StrEnum):

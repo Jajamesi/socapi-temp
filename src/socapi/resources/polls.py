@@ -1,7 +1,7 @@
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Literal
 from datetime import datetime
 from enum import IntEnum, StrEnum, auto
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, ConfigDict, model_validator
 from uuid import UUID
 
 from ..text_worker import parse_text
@@ -97,6 +97,32 @@ class Poll(BaseModel):
         return parse_text(self.description)
 
 
+    @model_validator(mode="after")
+    def _bind_questions_to_poll(self) -> "Poll":
+        """
+        for compatibility to call parent methods like question.logics
+        """
+        for block in self.blocks:
+            block._poll = self
+            for question in block.questions:
+                question._poll = self
+                for answer in question.answers:
+                    answer._poll = self
+        return self
+
+    def rebind_questions(self):
+        self._bind_questions_to_poll()
+
+    @property
+    def questions(self):
+        return [
+            q
+            for block in sorted(self.blocks, key=lambda x: x.order)
+            for q in sorted(block.questions, key=lambda x: x.order)
+        ]
+
+
+
 class GetPollHeaderPayload(BaseModel):
     id: int = Field(..., ge=1)
 
@@ -119,16 +145,42 @@ class ExportFormat(IntEnum):
     CSV=5
 
 
+class QuestionFilter(BaseModel):
+    question_id: int = Field(..., ge=1)
+    answer_id: int = Field(..., ge=1)
+
 class ExportFilter(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    counters_ids: Optional[List[int]] = None
+    from_:Optional[datetime] = Field(default=None, alias="from")
+    to: Optional[datetime] = Field(default=None)
+    is_disqualified: Optional[bool] = None
+    is_only_plan: Optional[bool] = None
+    questions: Optional[List[QuestionFilter]] = None
+    utm_source: Optional[List[int]] = None
+
     domain_ids: List[int] = Field(default=[1])
     is_poll_complete: bool = Field(default=True)
     is_poll_in_progress: bool = Field(default=True)
-    ...
+
+
+
+EXPORT_FORMATS = Literal["xlsx", "sav", "csv"]
 
 class ExportPayload(BaseModel):
     poll_id: int = Field(..., ge=1)
     filter: ExportFilter = Field(default_factory=ExportFilter)
-    format_id: ExportFormat = Field(default=ExportFormat.CSV)
+    format_id: ExportFormat | EXPORT_FORMATS = Field(default=ExportFormat.CSV)
+
+    @field_validator('format_id', mode='before')
+    @classmethod
+    def form_literal(cls, v):
+        if isinstance(v, str):
+            return ExportFormat[v.upper()]
+        else:
+            return v
+
 
 
 class DownloadPayload(BaseModel):
