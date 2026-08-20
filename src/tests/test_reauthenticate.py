@@ -53,7 +53,7 @@ async def test_authorization_retry(mocker, login, password, auth_count, request_
 
 
 
-@pytest.mark.asycnio
+@pytest.mark.asyncio
 async def test_auth_exceptions(mocker):
 
 

@@ -1,9 +1,10 @@
 from enum import IntEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 from datetime import datetime
-from .logic import InternalCondition
+from .logic import InternalCondition, JoinCondition
+
 
 class PredicateTypes(IntEnum):
     selected = 1
@@ -11,36 +12,83 @@ class PredicateTypes(IntEnum):
     answered = 3
     unanswered = 4
 
-class Predicate(BaseModel):
+
+class CounterPredicateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    predicate_id: int = Field(..., ge=1)
+    condition: InternalCondition
+
+
+class CounterConditionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    logic_join_condition: InternalCondition
+    question_id: int = Field(..., ge=1)
+    predicate: CounterPredicateRequest
+    answer_ids: list[int] = Field(default_factory=list)
+
+class CreateCounterPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    quota: int = Field(..., ge=0)
+    description: str
+    source_ids: list[int] = Field(default_factory=list)
+    poll_id: int = Field(..., ge=1)
+    is_disabled: bool = False
+    conditions: list[CounterConditionRequest] = Field(default_factory=list)
+
+
+class GetCounterPayload(BaseModel):
+    poll_id: int
+
+
+class CounterPredicate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     counter_id: int
     counter_condition_id: int
-    predicate_id: PredicateTypes
+    predicate_id: int
     poll_id: int
-    condition: InternalCondition # wtf?
-    deleted_at: Optional[datetime] = None
+    condition: InternalCondition
+    deleted_at: datetime | None = None
 
-class Condition(BaseModel):
+
+class CounterCondition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id: int
     counter_id: int
     question_id: int
-    answer_ids: Optional[List[int]]
+    answer_ids: list[int]
     logic_join_condition: InternalCondition
-    created_at: Optional[datetime] = Field(default_factory=datetime.now)
-    deleted_at: Optional[datetime] = None
+    created_at: datetime
+    deleted_at: datetime | None = None
+    predicate: CounterPredicate
 
 
-    # add validation based on predicate
+class CounterSource(BaseModel):
+    """
+    Шо это, где это? Легаси какое-то
+    """
+    model_config = ConfigDict(extra="forbid")
+    pass
 
 
 class Counter(BaseModel):
-    id: Optional[int] = None
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    poll_id: int
     name: str
     description: str
-    hits: int = 0
+    hits: int
     order: int
-    quota: int = 0
-    is_disabled: bool = False
-    created_at: Optional[datetime] = Field(default_factory=datetime.now)
-    deleted_at: Optional[datetime] = None
-    conditions: Optional[List[Condition]] = None
-    source_ids: Optional[List[int]] = Field(default=[])
+    quota: int
+    is_disabled: bool
+    created_at: datetime
+    deleted_at: datetime | None = None
+    conditions: list[CounterCondition] | None = None
+    source_ids: list[int] | None = None
+    sources: list[CounterSource] | None = None

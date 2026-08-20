@@ -16,7 +16,7 @@ from uuid import UUID
 
 from . import config, exceptions
 
-from .resources import user, pages, polls, blocks, questions
+from .resources import user, pages, polls, blocks, questions, logic, counters
 
 HttpMethod = Literal[
     "GET",
@@ -116,7 +116,7 @@ class Response(BaseModel):
     """
     status: int
     error: Optional[str]
-    result: Dict[str, Any]  | List[Any] | bool = Field(default_factory=list)
+    result: Dict[str, Any]  | List[Any] | bool | None = Field(default_factory=list)
 
 
 @dataclass
@@ -150,6 +150,8 @@ class ParserClient(BaseModel):
     poll: PollResource | None = None
     block: BlockResource | None = None
     question: QuestionResource | None = None
+    logic: LogicResource | None = None
+    counter: CounterResource | None = None
 
     _session: Optional[aiohttp.ClientSession] = PrivateAttr(default=None)
     _lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
@@ -167,6 +169,8 @@ class ParserClient(BaseModel):
         self.poll = PollResource(self)
         self.block = BlockResource(self)
         self.question = QuestionResource(self)
+        self.logic = LogicResource(self)
+        self.counter = CounterResource(self)
 
 
     def _login_password_valid(self):
@@ -392,29 +396,53 @@ class PollResource(BaseResource):
 
     async def get_poll_structure(self, poll_id: int) -> polls.Poll:
 
-        poll, blocks_ = await asyncio.gather(
+        poll, poll_blocks = await asyncio.gather(
             self.get_poll_head(poll_id=poll_id),
             self._client.block.get_blocks(poll_id=poll_id)
         )
 
         # get questions for each block
         question_tasks = [
-            self._client.question.get_block_question(block_id=block.id) for block in blocks_
+            self._client.question.get_block_question(block_id=block.id) for block in poll_blocks
         ]
 
-        questions_ = await asyncio.gather(*question_tasks)
+        questions_lists = await asyncio.gather(*question_tasks)
 
-        for block, questions_ in zip(blocks_, questions_):
-            block.questions = questions_
+        for block, block_questions in zip(poll_blocks, questions_lists):
+            block.questions = block_questions
 
-        poll.blocks = blocks_
+        poll.blocks = poll_blocks
+
+        # get logics, counters and bind to questions
+        (poll.jumps,
+         poll.displays,
+         poll.display_answers,
+         poll.counters
+         ) = await asyncio.gather(
+            self._client.logic.get_jumps(poll_id=poll_id),
+            self._client.logic.get_question_display(poll_id=poll_id),
+            self._client.logic.get_answer_display(poll_id=poll_id),
+            self._client.counter.get_counters(poll_id=poll_id),
+        )
+
+        poll.rebind_questions()
+
 
         return poll
 
 
-    async def _export_poll(self, poll_id: int) -> None:
+    async def _export_poll(
+            self,
+            poll_id: int,
+            export_format: polls.ExportFormat | polls.EXPORT_FORMATS = polls.ExportFormat.CSV,
+            filter_: polls.ExportFilter = polls.ExportFilter()
+    ) -> None:
         print("exporting", poll_id)
-        payload = polls.ExportPayload(poll_id=poll_id)
+        payload = polls.ExportPayload(
+            poll_id=poll_id,
+            format_id=export_format,
+            filter=filter_
+        )
 
         request = Request(
             method="POST",
@@ -468,9 +496,13 @@ class PollResource(BaseResource):
     async def download_polls(
             self,
             poll_ids: List[int] | int,
-            poll_interval: float = 5.0,
+            export_format: polls.ExportFormat | polls.EXPORT_FORMATS = polls.ExportFormat.CSV,
+            poll_interval: float | int = 5.0,
             max_concurrent: int = 5,
     ):
+        if isinstance(poll_ids, int):
+            poll_ids=[poll_ids]
+
         semaphore = asyncio.Semaphore(max_concurrent)
         in_flight: set[int] = set()
         ready_events: dict[int, asyncio.Event] = {}
@@ -482,7 +514,7 @@ class PollResource(BaseResource):
             Export one poll, waits for export, then download and send done
             """
             async with semaphore:
-                await self._export_poll(poll_id)
+                await self._export_poll(poll_id, export_format=export_format)
 
                 event = asyncio.Event()
                 ready_events[poll_id] = event
@@ -551,7 +583,7 @@ class QuestionResource(BaseResource):
             self,
             block_id: int,
             includes: List[questions.QuestionInclude] = questions.ALL_QUESTION_INCLUDES):
-        payload = questions.GetQuestionPayload(block_id=block_id, includes=includes)
+        payload = questions.GetBlockQuestionPayload(block_id=block_id, includes=includes)
 
         request = Request(
             method="POST",
@@ -561,3 +593,75 @@ class QuestionResource(BaseResource):
         )
         r = await self._request(request=request)
         return [questions.Question(**q) for q in r.result]
+
+
+    async def get_poll_questions(
+            self,
+            poll_id: int,
+            includes: List[questions.QuestionInclude] = questions.ALL_QUESTION_INCLUDES
+    ) -> List[questions.Question]:
+        payload = questions.GetPollQuestionPayload(poll_id=poll_id, includes=includes)
+
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.questions_by_poll_get,
+            json_=payload.model_dump()
+        )
+        r = await self._request(request=request)
+        return [questions.Question(**q) for q in r.result]
+
+
+class CounterResource(BaseResource):
+    async def get_counters(
+            self,
+            poll_id: int
+    ) -> List[counters.Counter]:
+        payload = counters.GetCounterPayload(poll_id=poll_id)
+
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.counters_get,
+            json_=payload.model_dump()
+        )
+        r = await self._request(request=request)
+        return [counters.Counter(**c) for c in r.result]
+
+
+class LogicResource(BaseResource):
+    async def get_jumps(self, poll_id: int) -> List[logic.Jump]:
+        payload = logic.GetLogicPayload(poll_id=poll_id)
+
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.jump_logic_get,
+            json_=payload.model_dump()
+        )
+        r = await self._request(request=request)
+        return [logic.Jump(**l) for l in r.result]
+
+    async def get_question_display(self, poll_id: int) -> List[logic.Display]:
+        payload = logic.GetLogicPayload(poll_id=poll_id)
+
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.display_logic_get,
+            json_=payload.model_dump()
+        )
+        r = await self._request(request=request)
+        return [logic.Display(**l) for l in r.result]
+
+    async def get_answer_display(self, poll_id: int) -> List[logic.DisplayAnswers]:
+        payload = logic.GetLogicPayload(poll_id=poll_id)
+
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.display_answer_logic_get,
+            json_=payload.model_dump()
+        )
+        r = await self._request(request=request)
+        return [logic.DisplayAnswers(**l) for l in r.result]
