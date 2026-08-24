@@ -18,8 +18,3 @@ class Source(BaseModel):
     visible: bool
     is_active: bool
     activate: bool
-
-
-
-class GetPagesPayload(BaseModel):
-    poll_id: int = Field(..., ge=1)

@@ -16,7 +16,7 @@ from uuid import UUID
 
 from . import config, exceptions
 
-from .resources import user, pages, polls, blocks, questions, logic, counters
+from .resources import user, pages, polls, blocks, questions, logic, counters, sources
 
 HttpMethod = Literal[
     "GET",
@@ -152,6 +152,7 @@ class ParserClient(BaseModel):
     question: QuestionResource | None = None
     logic: LogicResource | None = None
     counter: CounterResource | None = None
+    source: SourceResource | None = None
 
     _session: Optional[aiohttp.ClientSession] = PrivateAttr(default=None)
     _lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
@@ -171,6 +172,7 @@ class ParserClient(BaseModel):
         self.question = QuestionResource(self)
         self.logic = LogicResource(self)
         self.counter = CounterResource(self)
+        self.source =  SourceResource(self)
 
 
     def _login_password_valid(self):
@@ -665,3 +667,14 @@ class LogicResource(BaseResource):
         )
         r = await self._request(request=request)
         return [logic.DisplayAnswers(**l) for l in r.result]
+
+
+class SourceResource(BaseResource):
+    async def get_sources(self):
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.sources_get,
+        )
+        r = await self._request(request=request)
+        return [sources.Source(**s) for s in r.result]
