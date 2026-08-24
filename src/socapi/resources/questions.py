@@ -5,7 +5,7 @@ if TYPE_CHECKING:
 from typing import Optional, List, Any
 from datetime import datetime
 from enum import StrEnum, IntEnum
-from pydantic import BaseModel, Field, ConfigDict, PrivateAttr
+from pydantic import BaseModel, Field, ConfigDict, PrivateAttr, field_validator
 from uuid import UUID
 from ..text_worker import parse_text
 
@@ -56,6 +56,13 @@ class Answer(BaseModel):
 
     _poll: Optional['Poll'] = PrivateAttr(default=None)
 
+    @field_validator('input_validation', mode='before')
+    @classmethod
+    def handle_none(cls, v):
+        if v is None:
+            return ''
+        return v
+
     @property
     def human_title(self) -> str:
         return parse_text(self.title)
@@ -96,6 +103,14 @@ class ChildQuestion(BaseModel):
 
     block_id: int = Field(default=0, init=False)
     children: List = Field(default_factory=list, init=False)
+
+
+    @field_validator('input_validation', mode='before')
+    @classmethod
+    def handle_none(cls, v):
+        if v is None:
+            return ''
+        return v
 
     @property
     def human_title(self) -> str:

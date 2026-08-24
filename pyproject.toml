@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "socapi"
-version = "0.1.1"
+version = "0.1.11"
 description = "Python async package to wotk with poll constructor"
 authors = [
   { name="ZhironkinAA", email="ZhironkinAA@anodialog.ru" },

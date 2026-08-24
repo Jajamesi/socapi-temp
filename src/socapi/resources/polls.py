@@ -18,6 +18,7 @@ class BackgroundColor(StrEnum):
     LIGHT_GREEN = "#b6ffb5"
     LIGHT_RED = "#ff7c7c"
     PURPLE = "#7059ff"
+    NO_SET = ''
 
 
 
@@ -39,6 +40,7 @@ class Banner(StrEnum):
     REGION_URALFO_01 = "REGION_URALFO_01"
     NO_THEME_01 = "NO_THEME_01"
     ECOLOGY_01 = "ECOLOGY_01"
+    NO_SET = ''
 
 
 class PollStatus(IntEnum):
