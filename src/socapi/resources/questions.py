@@ -25,7 +25,7 @@ class AnswerTypes(IntEnum):
 class Measures(StrEnum):
     nominal="nominal"
     scale="scale"
-    ordered="ordered"
+    ordinal="ordinal"
 
 
 class InputValidations(StrEnum):
