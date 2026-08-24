@@ -56,7 +56,7 @@ class Answer(BaseModel):
 
     _poll: Optional['Poll'] = PrivateAttr(default=None)
 
-    @field_validator('input_validation', mode='before')
+    @field_validator('input_validation', 'title' , mode='before')
     @classmethod
     def handle_none(cls, v):
         if v is None:
