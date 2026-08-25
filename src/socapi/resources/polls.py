@@ -129,8 +129,13 @@ class Poll(BaseModel):
         io.to_json(self=self, file_path=file_path)
 
     @classmethod
-    def from_json_file(cls, file_path: dict):
+    def from_json_file(cls, file_path: str):
         return io.from_json(cls=cls, file_path=file_path)
+
+
+    def to_docx(self, file_path: str):
+        io.export_docx(poll=self, file_path=file_path)
+
 
 
 

@@ -114,3 +114,9 @@ async def test_json_io(mocker):
         poll = socapi.Poll.from_json_file(f"./tests/export_{test_poll}.json")
 
         assert isinstance(poll, socapi.Poll)
+
+
+@pytest.mark.asyncio
+async def test_export_docx(mocker):
+    poll = socapi.Poll.from_json_file(f"./tests/export_{test_poll}.json")
+    poll.to_docx(f"./tests/export_{test_poll}.docx")
