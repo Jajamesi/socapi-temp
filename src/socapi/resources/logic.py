@@ -1,8 +1,9 @@
-from typing import Optional, List, Any
+from typing import Optional, List, Any, TYPE_CHECKING
+if TYPE_CHECKING:
+    from .polls import Poll
 from datetime import datetime
 from enum import IntEnum, StrEnum
-from pydantic import BaseModel, Field, model_validator
-
+from pydantic import BaseModel, Field, model_validator, PrivateAttr
 
 
 class Comparator(IntEnum):
@@ -23,6 +24,21 @@ class Comparator(IntEnum):
     IS_ANSWERED_TEXT = 12
     IS_NOT_ANSWERED_TEXT = 13
 
+# COMPARATOR_MAPPING = {
+#     Comparator.IS_SELECTED: "выбрано",
+#     Comparator.IS_NOT_SELECTED: "не выбрано",
+#     Comparator.IS_ANSWERED: "отвечено",
+#     Comparator.IS_NOT_ANSWERED: Comparator.IS_NOT_ANSWERED,
+#     Comparator.CONTAINS: Comparator.CONTAINS,
+#     Comparator.EQUAL: Comparator.EQUAL,
+#     Comparator.STARTS_WITH: Comparator.STARTS_WITH,
+#     Comparator.ENDS_WITH: Comparator.ENDS_WITH,
+#     Comparator.EQUAL_NUM: Comparator.EQUAL_NUM,
+#     Comparator.LESS_THAN: Comparator.LESS_THAN,
+#     Comparator.GREATER_THAN: Comparator.GREATER_THAN,
+#     Comparator.IS_ANSWERED_TEXT: Comparator.IS_ANSWERED_TEXT,
+#     Comparator.IS_NOT_ANSWERED_TEXT: Comparator.IS_NOT_ANSWERED_TEXT,
+# }
 
 class JoinCondition(IntEnum):
     OR = 1
@@ -31,7 +47,6 @@ class JoinCondition(IntEnum):
 class InternalCondition(StrEnum):
     OR = "OR"
     AND = "AND"
-
 
 class Logic(BaseModel):
     id: int
@@ -52,6 +67,8 @@ class Logic(BaseModel):
     reference_answer_id: list[int] = Field(default_factory=list)
     reference_answer_value: list[str] = Field(default_factory=list)
 
+    _poll: Optional['Poll'] = PrivateAttr(default=None)
+
 
 class Jump(Logic):
     block_id: Optional[int] = None
@@ -60,6 +77,11 @@ class Jump(Logic):
     target_block_id: Optional[int] = None
     target_question_id: Optional[int] = None
     target_page_id: Optional[int] = None
+
+    _str_template: str = PrivateAttr(default="Если {conditions} переход на {tartet_type} {target}.")
+
+    def to_str(self):
+        pass
 
     @model_validator(mode='before')
     @classmethod

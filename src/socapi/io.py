@@ -1,9 +1,9 @@
-from typing import List, Optional, Type, TypeVar, TYPE_CHECKING
+from typing import List, Optional, Type, TypeVar, TYPE_CHECKING, Dict
 import orjson
 from pydantic import BaseModel
 
 from docx import Document
-from docx.shared import RGBColor, Pt
+from docx.shared import RGBColor, Pt, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.style import WD_STYLE_TYPE
 from docx.text.paragraph import Paragraph
@@ -18,10 +18,9 @@ import re
 if TYPE_CHECKING:
     from .resources.polls import Poll
     from .resources.blocks import Block
-from .resources.questions import AnswerTypes, Question, Answer
+from .resources.questions import AnswerTypes, Question, Answer, QuestionInclude
 
 T = TypeVar("T", bound=BaseModel)
-QUESTIONS_WITHOUT_ANSWERS = (AnswerTypes.open_question, AnswerTypes.email_request, AnswerTypes.info_material)
 
 def to_json(self: BaseModel, file_path: str) -> None:
     with open(file_path, "wb") as f:
@@ -388,6 +387,78 @@ class ExtendedDocument:
                 full_support = " " + ". ".join(answer_str) + "."
                 answer_paragraph.add_run(full_support, style=SUPPORT_STYLE_NAME_CHARACTER)
 
+    def _add_html_paragraph_to_cell(self, html: str, cell, merge_paragraphs: bool = True) -> Paragraph:
+        """
+        wrapper to add html content into a table cell, returns last paragraph in the cell
+        """
+        if merge_paragraphs:
+            html = replace_paragraphs_with_breaks(html)
+        self.parser.add_html_to_cell(html, cell)
+        return cell.paragraphs[-1]
+
+    def add_styled_html_cell(self, html: str, cell) -> Paragraph:
+        p = self._add_html_paragraph_to_cell(html, cell, merge_paragraphs=True)
+        p = self.set_default_style(paragraph=p)
+        return p
+
+    def set_fixed_layout(self, table: Table):
+        """Force fixed column widths (otherwise Word ignores cell/column widths)."""
+        tbl_pr = table._tbl.tblPr
+        layout = OxmlElement('w:tblLayout')
+        layout.set(qn('w:type'), 'fixed')
+        tbl_pr.append(layout)
+
+    def set_column_widths(self, table: Table, widths: List):
+        """
+        widths: list of Cm/Inches/Emu values, one per column.
+        Must set width on the table.columns AND on every cell in each column,
+        or Word will ignore it.
+        """
+        self.set_fixed_layout(table)
+
+        for col_idx, width in enumerate(widths):
+            table.columns[col_idx].width = width
+            for row in table.rows:
+                row.cells[col_idx].width = width
+
+    def insert_grid(self, question: Question):
+        x, y = len(question.children), len(question.answers)
+        table = self.doc.add_table(rows=x + 1, cols=y + 1)
+
+        # Header row
+        header = table.rows[0].cells
+        for cell, answer in zip(header[1:], question.answers):
+            self.add_styled_html_cell(answer.title, cell)
+
+        # index column
+        index_cells = table.columns[0].cells
+        for cell, child in zip(index_cells[1:], question.children):
+            self.add_styled_html_cell(child.title, cell)
+
+        # column widths: first column = 2 units, rest = 1 unit each
+        total_width = Pt(432)
+        unit = int(total_width / (y + 2))
+        widths = [unit * 2] + [unit] * y
+        self.set_column_widths(table, widths)
+
+        # values
+        values = [str(i) for i in range(1, y+1)]
+        for row_i in range(1, x+1):
+            row = table.rows[row_i].cells
+            for cell, value in zip(row[1:], values):
+                self.add_styled_html_cell(value, cell)
+
+
+    def process_jump(self, question: Question, question_mapper: Dict[int, str], answer_mapper: Dict[int, str]):
+        pass
+        template = "Если {conditions} переход на {tartet_type} {target}."
+        # template_condition =
+        tmplate_start = "Если"
+        teplate_target = "переход на {target_} Финальная страница."
+
+
+
+
 
 def export_docx(poll: Poll, file_path: str) -> None:
     ext_document = ExtendedDocument()
@@ -404,22 +475,31 @@ def export_docx(poll: Poll, file_path: str) -> None:
     ext_document.add_footer(poll.name)
     ext_document.set_description(poll.description)
 
+    question_mapper = poll.question_id_to_order
+    answer_mapper = poll.answer_id_to_order
+
     for block in poll.blocks:
 
         ext_document.process_block(block=block)
-
 
         for question in block.questions:
 
             ext_document.process_question(question=question)
 
-            # add answers if needed
-            if question.type_id in QUESTIONS_WITHOUT_ANSWERS:
-                table = document.add_table(rows=1, cols=1)
-                set_table_borders(table)
+            for jump in question.jumps:
+                ext_document.process_jump(jump, question_mapper=question_mapper, answer_mapper=answer_mapper)
 
-            else:
-                ext_document.process_answers(question.answers)
+            # add answers if needed
+            match question.type_id:
+                case AnswerTypes.info_material:
+                    pass
+                case  AnswerTypes.open_question | AnswerTypes.email_request:
+                    table = document.add_table(rows=1, cols=1)
+                    set_table_borders(table)
+                case AnswerTypes.single_answer_per_row | AnswerTypes.multiple_choice_per_row:
+                    ext_document.insert_grid(question)
+                case _:
+                    ext_document.process_answers(question.answers)
 
 
 

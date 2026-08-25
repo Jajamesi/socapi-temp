@@ -427,7 +427,9 @@ class PollResource(BaseResource):
             self._client.counter.get_counters(poll_id=poll_id),
         )
 
+        # bind parent poll to every nested item to have access to logics
         poll.rebind_questions()
+        poll.count_questions()
 
 
         return poll
@@ -439,7 +441,6 @@ class PollResource(BaseResource):
             export_format: polls.ExportFormat | polls.EXPORT_FORMATS = polls.ExportFormat.CSV,
             filter_: polls.ExportFilter = polls.ExportFilter()
     ) -> None:
-        print("exporting", poll_id)
         payload = polls.ExportPayload(
             poll_id=poll_id,
             format_id=export_format,
@@ -455,7 +456,6 @@ class PollResource(BaseResource):
         await self._request(request=request)
 
     async def _download_poll(self, uuid: UUID):
-        print("downloading", uuid)
         payload = polls.DownloadPayload(uuid=uuid)
 
         request = Request(
@@ -468,7 +468,6 @@ class PollResource(BaseResource):
         return  r
 
     async def _done_poll(self, uuid: UUID):
-        print("Done", uuid)
         payload = polls.DownloadPayload(uuid=uuid)
 
         request = Request(
@@ -481,7 +480,6 @@ class PollResource(BaseResource):
 
 
     async def _progress(self) -> List[polls.ProgressStatus]:
-        print("PROGRESS SENT")
         request = Request(
             method="POST",
             host=self._client._constructor.admin_url,
@@ -489,8 +487,6 @@ class PollResource(BaseResource):
             json_=None
         )
         r = await self._request(request=request)
-
-        print("PROGRESS", r)
 
         return [polls.ProgressStatus(**s) for s in r.result]
 
@@ -534,11 +530,9 @@ class PollResource(BaseResource):
             Check export status and set ready_events
             """
             remaining = set(poll_ids)
-            print("REMAINING", remaining)
             while remaining:
                 if in_flight:
                     statuses = await self._progress()
-                    print("STATUS", statuses)
                     for status in statuses:
                         if (poll_id:=status.params.poll_id) in in_flight and status.status == polls.ExportStatus.DONE:
                             in_flight.discard(poll_id)
@@ -554,10 +548,8 @@ class PollResource(BaseResource):
 
         await asyncio.gather(*worker_tasks)
         poller_task.cancel()
-        print("PROGRESS CANCELLED")
         with contextlib.suppress(asyncio.CancelledError):
             await poller_task
-            print("POLLER ENDED")
 
         return results
 
@@ -577,7 +569,7 @@ class BlockResource(BaseResource):
             json_=payload.model_dump()
         )
         r = await self._request(request=request)
-        return [blocks.Block(**b) for b in r.result]
+        return sorted([blocks.Block(**b) for b in r.result], key=lambda x: x.order)
 
 
 class QuestionResource(BaseResource):
@@ -594,7 +586,7 @@ class QuestionResource(BaseResource):
             json_=payload.model_dump()
         )
         r = await self._request(request=request)
-        return [questions.Question(**q) for q in r.result]
+        return sorted([questions.Question(**q) for q in r.result], key=lambda x: x.order)
 
 
     async def get_poll_questions(
@@ -611,7 +603,8 @@ class QuestionResource(BaseResource):
             json_=payload.model_dump()
         )
         r = await self._request(request=request)
-        return [questions.Question(**q) for q in r.result]
+        result = [questions.Question(**q, _poll_order=i) for i, q in enumerate(r.result, start=1)] # assume it is sorted by backend
+        return result
 
 
 class CounterResource(BaseResource):
