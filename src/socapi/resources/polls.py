@@ -11,6 +11,7 @@ from . import logic
 from  .pages import Page
 from .blocks import Block
 from .sources import Source
+from .. import io
 
 class BackgroundColor(StrEnum):
     LIGHT_BLUE = "#bdcff6"
@@ -122,6 +123,19 @@ class Poll(BaseModel):
             for block in sorted(self.blocks, key=lambda x: x.order)
             for q in sorted(block.questions, key=lambda x: x.order)
         ]
+
+
+    def to_json_file(self, file_path: str):
+        io.to_json(self=self, file_path=file_path)
+
+    @classmethod
+    def from_json_file(cls, file_path: str):
+        return io.from_json(cls=cls, file_path=file_path)
+
+
+    def to_docx(self, file_path: str):
+        io.export_docx(poll=self, file_path=file_path)
+
 
 
 
