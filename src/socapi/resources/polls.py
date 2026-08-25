@@ -1,7 +1,7 @@
-from typing import Optional, List, Any, Literal
+from typing import Optional, List, Any, Literal, Dict
 from datetime import datetime
 from enum import IntEnum, StrEnum, auto
-from pydantic import BaseModel, Field, field_validator, ConfigDict, model_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict, model_validator, PrivateAttr
 from uuid import UUID
 
 from ..text_worker import parse_text
@@ -92,12 +92,20 @@ class Poll(BaseModel):
     logic_panel: None = None # what's this?
     language_id: int = 1 # Russian
 
-
+    _question_counter: int = PrivateAttr(default=0)
     # user: Optional[User] = Field(default=None)
 
     @property
     def human_description(self) -> str:
         return parse_text(self.description)
+
+    @property
+    def len_question(self):
+        i = 0
+        for b in self.blocks:
+            i+=len(b.questions)
+        return i
+
 
 
     @model_validator(mode="after")
@@ -123,6 +131,51 @@ class Poll(BaseModel):
             for block in sorted(self.blocks, key=lambda x: x.order)
             for q in sorted(block.questions, key=lambda x: x.order)
         ]
+
+    def count_questions(self):
+        i = 1
+        for q in self.questions:
+            q._poll_order = i
+            i+=1
+
+    @property
+    def question_id_to_order(self) -> Dict[int, str]:
+        result = {}
+        i = 0
+        for q in self.questions:
+            i+=1
+            j=0
+            result[q.id] = str(i)
+            if q.children:
+                j+=1
+                for c in q.children:
+                    result[c.id] = f"{i}.{j}"
+        return result
+
+    @property
+    def answer_id_to_order(self) -> Dict[int, str]:
+        result = {}
+        for q in self.questions:
+            i = 0
+            for a in q.answers:
+                i += 1
+                result[a.id] = str(i)
+        return result
+
+    @property
+    def block_id_to_name(self) -> Dict[int, str]:
+        result = {}
+        for b in self.blocks:
+            result[b.id] = str(b.title)
+        return result
+
+
+    @property
+    def page_id_to_name(self) -> Dict[int, str]:
+        result = {}
+        for p in self.pages:
+            result[p.id] = str(p.name)
+        return result
 
 
     def to_json_file(self, file_path: str):

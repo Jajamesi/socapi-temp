@@ -5,7 +5,7 @@ if TYPE_CHECKING:
 from typing import Optional, List, Any
 from datetime import datetime
 from enum import StrEnum, IntEnum
-from pydantic import BaseModel, Field, ConfigDict, PrivateAttr, field_validator
+from pydantic import BaseModel, Field, ConfigDict, PrivateAttr, field_validator, model_validator
 from uuid import UUID
 from ..text_worker import parse_text
 
@@ -146,6 +146,19 @@ class Question(ChildQuestion):
 
     parent_id: int = 0  # for children question otherwise 0
     block_id: Optional[int] = None
+
+    _poll_order: Optional[int] = PrivateAttr(default=0) # unnested order in poll
+
+    @field_validator('answers', mode='after')
+    @classmethod
+    def sort_answers(cls, v):
+        if isinstance(v, list):
+            return sorted(v, key=lambda x: x.order)
+        return v
+
+    @property
+    def poll_order(self):
+        return self._poll_order
 
 
 class QuestionInclude(StrEnum):
