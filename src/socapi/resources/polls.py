@@ -11,6 +11,7 @@ from . import logic
 from  .pages import Page
 from .blocks import Block
 from .sources import Source
+from .questions import Question
 from .. import io
 
 class BackgroundColor(StrEnum):
@@ -93,6 +94,14 @@ class Poll(BaseModel):
     language_id: int = 1 # Russian
 
     _question_counter: int = PrivateAttr(default=0)
+
+    _question_by_id: dict[int, Question] = PrivateAttr(default_factory=dict)
+    _block_by_id: dict[int, Block] = PrivateAttr(default_factory=dict)
+    _page_by_id: dict[int, Page] = PrivateAttr(default_factory=dict)
+
+
+
+
     # user: Optional[User] = Field(default=None)
 
     @property
@@ -124,6 +133,33 @@ class Poll(BaseModel):
     def rebind_questions(self):
         self._bind_questions_to_poll()
 
+    @model_validator(mode="after")
+    def _bind_logics_to_poll(self) -> "Poll":
+        """
+        for compatibility to call parent methods like question.logics
+        """
+        for logic_type in [self.jumps, self.display_answers, self.displays]:
+            for logic in logic_type:
+                logic._poll = self
+
+        return self
+
+    def rebind_logics(self):
+        self._bind_logics_to_poll()
+
+    @model_validator(mode="after")
+    def _bind_blocks_to_poll(self) -> "Poll":
+        """
+        for compatibility to call parent methods like question.logics
+        """
+        for block in self.blocks:
+            block._poll = self
+
+        return self
+
+    def rebind_blocks(self):
+        self._bind_blocks_to_poll()
+
     @property
     def questions(self):
         return [
@@ -138,44 +174,37 @@ class Poll(BaseModel):
             q._poll_order = i
             i+=1
 
-    @property
-    def question_id_to_order(self) -> Dict[int, str]:
-        result = {}
-        i = 0
-        for q in self.questions:
-            i+=1
-            j=0
-            result[q.id] = str(i)
-            if q.children:
-                j+=1
-                for c in q.children:
-                    result[c.id] = f"{i}.{j}"
-        return result
+    def _rebuild_index(self, index_name: str, collection_name: str):
+        setattr(
+            self,
+            index_name,
+            {
+                item.id: item
+                for item in getattr(self, collection_name)
+            },
+        )
 
-    @property
-    def answer_id_to_order(self) -> Dict[int, str]:
-        result = {}
-        for q in self.questions:
-            i = 0
-            for a in q.answers:
-                i += 1
-                result[a.id] = str(i)
-        return result
+    @model_validator(mode="after")
+    def index_questions(self):
+        self._rebuild_index(index_name="_question_by_id", collection_name="questions")
+        return self
 
-    @property
-    def block_id_to_name(self) -> Dict[int, str]:
-        result = {}
-        for b in self.blocks:
-            result[b.id] = str(b.title)
-        return result
+    @model_validator(mode="after")
+    def index_blocks(self):
+        self._rebuild_index(index_name="_block_by_id", collection_name="blocks")
+        return self
 
+    @model_validator(mode="after")
+    def index_pages(self):
+        self._rebuild_index(index_name="_page_by_id", collection_name="pages")
+        return self
 
-    @property
-    def page_id_to_name(self) -> Dict[int, str]:
-        result = {}
-        for p in self.pages:
-            result[p.id] = str(p.name)
-        return result
+    def get_question_by_id(self, item_id: int):
+        return self._question_by_id.get(item_id)
+    def get_block_by_id(self, item_id: int):
+        return self._block_by_id.get(item_id)
+    def get_page_by_id(self, item_id: int):
+        return self._page_by_id.get(item_id)
 
 
     def to_json_file(self, file_path: str):
