@@ -419,17 +419,23 @@ class PollResource(BaseResource):
         (poll.jumps,
          poll.displays,
          poll.display_answers,
-         poll.counters
+         poll.counters,
+         poll.pages,
          ) = await asyncio.gather(
             self._client.logic.get_jumps(poll_id=poll_id),
             self._client.logic.get_question_display(poll_id=poll_id),
             self._client.logic.get_answer_display(poll_id=poll_id),
             self._client.counter.get_counters(poll_id=poll_id),
+            self._client.page.get_pages(poll_id=poll_id),
         )
 
         # bind parent poll to every nested item to have access to logics
-        poll.rebind_questions()
-        poll.count_questions()
+        poll = polls.Poll.model_validate(poll)
+
+        # poll.rebind_questions()
+        # poll.rebind_logics()
+        # poll.rebind_blocks()
+        # poll.count_questions()
 
 
         return poll
