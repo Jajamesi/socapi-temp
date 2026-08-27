@@ -148,6 +148,9 @@ class Question(ChildQuestion):
     block_id: Optional[int] = None
 
     _poll_order: Optional[int] = PrivateAttr(default=0) # unnested order in poll
+    _answers_by_id: dict[int, Question] = PrivateAttr(default_factory=dict)
+
+    _str_template: str = PrivateAttr(default="Вопрос будет показан, если {conditions}.")
 
     @field_validator('answers', mode='after')
     @classmethod
@@ -156,9 +159,27 @@ class Question(ChildQuestion):
             return sorted(v, key=lambda x: x.order)
         return v
 
+    def _rebuild_index(self, index_name: str, collection_name: str):
+        setattr(
+            self,
+            index_name,
+            {
+                item.id: item
+                for item in getattr(self, collection_name)
+            },
+        )
+
+    @model_validator(mode="after")
+    def index_answers(self):
+        self._rebuild_index(index_name="_answers_by_id", collection_name="answers")
+        return self
+
     @property
     def poll_order(self):
         return self._poll_order
+
+    def get_answer_by_id(self, item_id: int):
+        return self._answers_by_id.get(item_id)
 
 
 class QuestionInclude(StrEnum):

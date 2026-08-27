@@ -448,6 +448,8 @@ class ExtendedDocument:
             for cell, value in zip(row[1:], values):
                 self.add_styled_html_cell(value, cell)
 
+    def process_display(self, ):
+        pass
 
     def process_jump(self, question: Question, question_mapper: Dict[int, str], answer_mapper: Dict[int, str]):
         pass
@@ -486,6 +488,8 @@ def export_docx(poll: Poll, file_path: str) -> None:
 
             ext_document.process_question(question=question)
 
+            for jump in question.jumps:
+                ext_document.process_display(jump, question_mapper=question_mapper, answer_mapper=answer_mapper)
             for jump in question.jumps:
                 ext_document.process_jump(jump, question_mapper=question_mapper, answer_mapper=answer_mapper)
 
