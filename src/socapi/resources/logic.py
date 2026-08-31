@@ -114,18 +114,21 @@ class Display(Logic):
                                              "ответ {reference_answers}")
 
     def human_display(self):
-        pass
-        # reference_question = self._poll.get_question_by_id(self.reference_question_id)
-        # reference_answers = 1
-        # if isinstance(reference_answers, list):
-        #     reference_answers_title = " или ".join(reference_answers)
-        # else:
-        #     reference_answers_title = reference_answers
-        # return self._str_template.format(
-        #     reference_question_order = reference_question.poll_order,
-        #     comparator = COMPARATOR_MAPPING.get(self.comparator_id),
-        #     reference_answers = .get_answer_by_id(self.reference_answer_id).order,
-        # )
+
+        reference_question = self._poll.get_question_by_id(self.reference_question_id)
+
+        if self.reference_answer_id:
+            reference_answer = sorted([reference_question.get_answer_by_id(a).order for a in self.reference_answer_id])
+        elif self.reference_answer_value:
+            reference_answer = self.reference_answer_value
+        else:
+            reference_answer = None
+
+        return self._str_template.format(
+            reference_question_order = reference_question.poll_order,
+            comparator = COMPARATOR_MAPPING.get(self.comparator_id),
+            reference_answers = reference_answer,
+        )
 
 
 class DisplayAnswers(Logic):
