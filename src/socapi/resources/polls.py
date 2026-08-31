@@ -168,11 +168,13 @@ class Poll(BaseModel):
             for q in sorted(block.questions, key=lambda x: x.order)
         ]
 
+    @model_validator(mode='after')
     def count_questions(self):
         i = 1
         for q in self.questions:
             q._poll_order = i
             i+=1
+        return self
 
     def _rebuild_index(self, index_name: str, collection_name: str):
         setattr(

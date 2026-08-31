@@ -24,21 +24,21 @@ class Comparator(IntEnum):
     IS_ANSWERED_TEXT = 12
     IS_NOT_ANSWERED_TEXT = 13
 
-# COMPARATOR_MAPPING = {
-#     Comparator.IS_SELECTED: "выбрано",
-#     Comparator.IS_NOT_SELECTED: "не выбрано",
-#     Comparator.IS_ANSWERED: "отвечено",
-#     Comparator.IS_NOT_ANSWERED: Comparator.IS_NOT_ANSWERED,
-#     Comparator.CONTAINS: Comparator.CONTAINS,
-#     Comparator.EQUAL: Comparator.EQUAL,
-#     Comparator.STARTS_WITH: Comparator.STARTS_WITH,
-#     Comparator.ENDS_WITH: Comparator.ENDS_WITH,
-#     Comparator.EQUAL_NUM: Comparator.EQUAL_NUM,
-#     Comparator.LESS_THAN: Comparator.LESS_THAN,
-#     Comparator.GREATER_THAN: Comparator.GREATER_THAN,
-#     Comparator.IS_ANSWERED_TEXT: Comparator.IS_ANSWERED_TEXT,
-#     Comparator.IS_NOT_ANSWERED_TEXT: Comparator.IS_NOT_ANSWERED_TEXT,
-# }
+COMPARATOR_MAPPING = {
+    Comparator.IS_SELECTED: "выбрано",
+    Comparator.IS_NOT_SELECTED: "не выбрано",
+    Comparator.IS_ANSWERED: "отвечено",
+    Comparator.IS_NOT_ANSWERED: "не отвечено",
+    Comparator.CONTAINS: "содержит",
+    Comparator.EQUAL: "равнозначно",
+    Comparator.STARTS_WITH: "начинается с",
+    Comparator.ENDS_WITH: "заканчивается",
+    Comparator.EQUAL_NUM: "равно",
+    Comparator.LESS_THAN: "меньше",
+    Comparator.GREATER_THAN: "больше",
+    Comparator.IS_ANSWERED_TEXT: "IS_ANSWERED_TEXT",
+    Comparator.IS_NOT_ANSWERED_TEXT: "IS_NOT_ANSWERED_TEXT",
+}
 
 class JoinCondition(IntEnum):
     OR = 1
@@ -108,6 +108,27 @@ class Display(Logic):
     target_block_id: Optional[int] = None
     target_question_id: Optional[int] = None
     target_page_id: Optional[int] = None
+
+    _str_template: str = PrivateAttr(default="в вопросе {reference_question_order} "
+                                             "{comparator} "
+                                             "ответ {reference_answers}")
+
+    def human_display(self):
+
+        reference_question = self._poll.get_question_by_id(self.reference_question_id)
+
+        if self.reference_answer_id:
+            reference_answer = sorted([reference_question.get_answer_by_id(a).order for a in self.reference_answer_id])
+        elif self.reference_answer_value:
+            reference_answer = self.reference_answer_value
+        else:
+            reference_answer = None
+
+        return self._str_template.format(
+            reference_question_order = reference_question.poll_order,
+            comparator = COMPARATOR_MAPPING.get(self.comparator_id),
+            reference_answers = reference_answer,
+        )
 
 
 class DisplayAnswers(Logic):
