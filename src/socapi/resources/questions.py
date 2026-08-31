@@ -91,6 +91,8 @@ class ChildQuestion(BaseModel):
     status_id: int = 1 # ?
 
     _poll: Optional['Poll'] = PrivateAttr(default=None)
+    _poll_order: Optional[float| int ] = PrivateAttr(default=0)  # unnested order in poll
+    _parent_question: Optional[Question] = PrivateAttr(default=None)
 
     optional: bool  = False
     has_input: bool  = False
@@ -104,6 +106,9 @@ class ChildQuestion(BaseModel):
     block_id: int = Field(default=0, init=False)
     children: List = Field(default_factory=list, init=False)
 
+    @property
+    def poll_order(self):
+        return self._poll_order
 
     @field_validator('input_validation', mode='before')
     @classmethod
@@ -147,7 +152,6 @@ class Question(ChildQuestion):
     parent_id: int = 0  # for children question otherwise 0
     block_id: Optional[int] = None
 
-    _poll_order: Optional[int] = PrivateAttr(default=0) # unnested order in poll
     _answers_by_id: dict[int, Question] = PrivateAttr(default_factory=dict)
 
     _str_template: str = PrivateAttr(default="Вопрос будет показан, если {conditions}.")
@@ -174,9 +178,7 @@ class Question(ChildQuestion):
         self._rebuild_index(index_name="_answers_by_id", collection_name="answers")
         return self
 
-    @property
-    def poll_order(self):
-        return self._poll_order
+
 
     def get_answer_by_id(self, item_id: int):
         return self._answers_by_id.get(item_id)

@@ -1,4 +1,7 @@
 from typing import Optional, List, Any, TYPE_CHECKING
+
+from .questions import ChildQuestion, Question
+
 if TYPE_CHECKING:
     from .polls import Poll
 from datetime import datetime
@@ -24,25 +27,30 @@ class Comparator(IntEnum):
     IS_ANSWERED_TEXT = 12
     IS_NOT_ANSWERED_TEXT = 13
 
-COMPARATOR_MAPPING = {
-    Comparator.IS_SELECTED: "выбрано",
-    Comparator.IS_NOT_SELECTED: "не выбрано",
+COMPARATOR_TEMPLATES = {
+    Comparator.IS_SELECTED: "выбран ответ {reference_answers}",
+    Comparator.IS_NOT_SELECTED: "не выбран ответ {reference_answers}",
     Comparator.IS_ANSWERED: "отвечено",
     Comparator.IS_NOT_ANSWERED: "не отвечено",
-    Comparator.CONTAINS: "содержит",
-    Comparator.EQUAL: "равнозначно",
-    Comparator.STARTS_WITH: "начинается с",
-    Comparator.ENDS_WITH: "заканчивается",
-    Comparator.EQUAL_NUM: "равно",
-    Comparator.LESS_THAN: "меньше",
-    Comparator.GREATER_THAN: "больше",
-    Comparator.IS_ANSWERED_TEXT: "IS_ANSWERED_TEXT",
-    Comparator.IS_NOT_ANSWERED_TEXT: "IS_NOT_ANSWERED_TEXT",
+    Comparator.CONTAINS: "содержит {reference_answers}",
+    Comparator.EQUAL: "равнозначно {reference_answers}",
+    Comparator.STARTS_WITH: "начинается с {reference_answers}",
+    Comparator.ENDS_WITH: "заканчивается {reference_answers}",
+    Comparator.EQUAL_NUM: "равно {reference_answers}",
+    Comparator.LESS_THAN: "меньше {reference_answers}",
+    Comparator.GREATER_THAN: "больше {reference_answers}",
+    Comparator.IS_ANSWERED_TEXT: "IS_ANSWERED_TEXT {reference_answers}",
+    Comparator.IS_NOT_ANSWERED_TEXT: "IS_NOT_ANSWERED_TEXT {reference_answers}",
 }
 
 class JoinCondition(IntEnum):
     OR = 1
     AND = 2
+
+JOIN_CONDITION_TO_STR = {
+    JoinCondition.OR: "ИЛИ",
+    JoinCondition.AND: "И",
+}
 
 class InternalCondition(StrEnum):
     OR = "OR"
@@ -109,16 +117,23 @@ class Display(Logic):
     target_question_id: Optional[int] = None
     target_page_id: Optional[int] = None
 
-    _str_template: str = PrivateAttr(default="в вопросе {reference_question_order} "
-                                             "{comparator} "
-                                             "ответ {reference_answers}")
+    _str_template: str = PrivateAttr(default="в вопросе {reference_question_order} {comparator_reference}.")
 
-    def human_display(self):
+    def human_display(self, show_join=True) -> str:
 
         reference_question = self._poll.get_question_by_id(self.reference_question_id)
 
+        if type(reference_question) is ChildQuestion:
+            answer_source_question = reference_question._parent_question
+        elif type(reference_question) is Question:
+            answer_source_question = reference_question
+        else:
+            raise ValueError("Incorrect reference question type")
+
+
+
         if self.reference_answer_id:
-            reference_answer = sorted([reference_question.get_answer_by_id(a).order for a in self.reference_answer_id])
+            reference_answer = sorted([answer_source_question.get_answer_by_id(a).order for a in self.reference_answer_id])
         elif self.reference_answer_value:
             reference_answer = self.reference_answer_value
         else:
@@ -126,8 +141,8 @@ class Display(Logic):
 
         return self._str_template.format(
             reference_question_order = reference_question.poll_order,
-            comparator = COMPARATOR_MAPPING.get(self.comparator_id),
-            reference_answers = reference_answer,
+            comparator_reference = COMPARATOR_TEMPLATES.get(self.comparator_id).format(reference_answers=reference_answer),
+            join_condition = JOIN_CONDITION_TO_STR.get(self.join_condition_id),
         )
 
 
