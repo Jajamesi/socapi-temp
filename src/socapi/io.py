@@ -18,6 +18,7 @@ import re
 if TYPE_CHECKING:
     from .resources.polls import Poll
     from .resources.blocks import Block
+from .resources.logic import DisplayAnswers, Display, Jump, JOIN_CONDITION_TO_STR
 from .resources.questions import AnswerTypes, Question, Answer, QuestionInclude
 
 T = TypeVar("T", bound=BaseModel)
@@ -448,8 +449,18 @@ class ExtendedDocument:
             for cell, value in zip(row[1:], values):
                 self.add_styled_html_cell(value, cell)
 
-    def process_display(self, ):
+    def process_display(self, display: Display):
         pass
+
+    def process_displays(self, displays: List[Display]):
+        result = []
+        for d in displays:
+            result.append(f"Вопрос будет показан, если {d.human_display()}")
+            result.append(JOIN_CONDITION_TO_STR.get(d.join_condition_id))
+
+        full_support = ".\n".join(result[:-1]) # drop last join condition
+
+        p = self.doc.add_paragraph(full_support, style=SUPPORT_STYLE_NAME)
 
     def process_jump(self, question: Question, question_mapper: Dict[int, str], answer_mapper: Dict[int, str]):
         pass
@@ -477,9 +488,6 @@ def export_docx(poll: Poll, file_path: str) -> None:
     ext_document.add_footer(poll.name)
     ext_document.set_description(poll.description)
 
-    question_mapper = poll.question_id_to_order
-    answer_mapper = poll.answer_id_to_order
-
     for block in poll.blocks:
 
         ext_document.process_block(block=block)
@@ -487,11 +495,11 @@ def export_docx(poll: Poll, file_path: str) -> None:
         for question in block.questions:
 
             ext_document.process_question(question=question)
+            if question.displays:
+                ext_document.process_displays(question.displays)
 
-            for jump in question.jumps:
-                ext_document.process_display(jump, question_mapper=question_mapper, answer_mapper=answer_mapper)
-            for jump in question.jumps:
-                ext_document.process_jump(jump, question_mapper=question_mapper, answer_mapper=answer_mapper)
+            # for jump in question.jumps:
+            #     ext_document.process_jump(jump, question_mapper=question_mapper, answer_mapper=answer_mapper)
 
             # add answers if needed
             match question.type_id:
@@ -504,11 +512,5 @@ def export_docx(poll: Poll, file_path: str) -> None:
                     ext_document.insert_grid(question)
                 case _:
                     ext_document.process_answers(question.answers)
-
-
-
-
-
-
 
     document.save(file_path)

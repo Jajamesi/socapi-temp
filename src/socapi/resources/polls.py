@@ -3,6 +3,7 @@ from datetime import datetime
 from enum import IntEnum, StrEnum, auto
 from pydantic import BaseModel, Field, field_validator, ConfigDict, model_validator, PrivateAttr
 from uuid import UUID
+from itertools import chain
 
 from ..text_worker import parse_text
 
@@ -11,7 +12,7 @@ from . import logic
 from  .pages import Page
 from .blocks import Block
 from .sources import Source
-from .questions import Question
+from .questions import Question, ChildQuestion
 from .. import io
 
 class BackgroundColor(StrEnum):
@@ -96,6 +97,7 @@ class Poll(BaseModel):
     _question_counter: int = PrivateAttr(default=0)
 
     _question_by_id: dict[int, Question] = PrivateAttr(default_factory=dict)
+    _children_by_id: dict[int, ChildQuestion] = PrivateAttr(default_factory=dict)
     _block_by_id: dict[int, Block] = PrivateAttr(default_factory=dict)
     _page_by_id: dict[int, Page] = PrivateAttr(default_factory=dict)
 
@@ -128,6 +130,18 @@ class Poll(BaseModel):
                 question._poll = self
                 for answer in question.answers:
                     answer._poll = self
+        return self
+
+
+    @model_validator(mode="after")
+    def _bind_child_to_parent(self) -> "Poll":
+        """
+        for compatibility to call parent methods like question.logics
+        """
+        for question in self.questions:
+            for child in question.children:
+                child._parent_question = question
+
         return self
 
     def rebind_questions(self):
@@ -174,6 +188,8 @@ class Poll(BaseModel):
         for q in self.questions:
             q._poll_order = i
             i+=1
+            for j, c in enumerate(q.children, start=1):
+                c._poll_order = i + j / 10
         return self
 
     def _rebuild_index(self, index_name: str, collection_name: str):
@@ -188,7 +204,11 @@ class Poll(BaseModel):
 
     @model_validator(mode="after")
     def index_questions(self):
-        self._rebuild_index(index_name="_question_by_id", collection_name="questions")
+        self._question_by_id = {
+            item.id: item
+            for q in self.questions
+            for item in chain((q,), q.children)
+        }
         return self
 
     @model_validator(mode="after")

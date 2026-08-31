@@ -126,5 +126,6 @@ async def test_json_io(mocker):
 
 @pytest.mark.asyncio
 async def test_export_docx(mocker):
-    poll = socapi.Poll.from_json_file(f"./tests/export_{test_poll}.json")
-    poll.to_docx(f"./tests/export_{test_poll}.docx")
+    async with (socapi.ParserClient(login=login, password=password, host="online-sociology.ru") as client):
+        poll = await client.poll.get_poll_structure(poll_id=12857) # rkz poll with complex logics
+    poll.to_docx(f"./export_{12857}.docx")
