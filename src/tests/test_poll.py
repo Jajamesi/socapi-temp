@@ -106,12 +106,20 @@ async def test_download_poll(mocker, export_format,filter_):
 
 
 @pytest.mark.asyncio
+async def test_validate_download_poll(mocker):
+    async with (socapi.ParserClient(login=login, password=password, host="online-sociology.ru") as client):
+        result = await client.poll.download_polls(poll_ids=str(test_poll))
+        assert test_poll in result.keys()
+
+
+@pytest.mark.asyncio
 async def test_json_io(mocker):
     async with (socapi.ParserClient(login=login, password=password, host="online-sociology.ru") as client):
         result = await client.poll.get_poll_structure(poll_id=test_poll)
-        result.to_json_file(f"./tests/export_{test_poll}.json")
+        result.to_json_file(f"./export_{test_poll}.json")
+        poll = socapi.Poll.from_json_file(f"./export_{test_poll}.json")
 
-        poll = socapi.Poll.from_json_file(f"./tests/export_{test_poll}.json")
+        os.remove(f"./export_{test_poll}.json")
 
         assert isinstance(poll, socapi.Poll)
 

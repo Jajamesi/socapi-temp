@@ -4,7 +4,7 @@ from urllib import response
 
 import aiohttp
 from dataclasses import dataclass
-from pydantic import BaseModel, PrivateAttr, computed_field, model_validator, Field, HttpUrl, ConfigDict
+from pydantic import BaseModel, PrivateAttr, computed_field, model_validator, Field, HttpUrl, ConfigDict, validate_call
 import functools
 from typing import List, Optional, Literal, Union, Any, Mapping, Dict, Callable, ParamSpec, TypeVar, Awaitable
 from datetime import datetime, timedelta
@@ -496,7 +496,7 @@ class PollResource(BaseResource):
 
         return [polls.ProgressStatus(**s) for s in r.result]
 
-
+    @validate_call
     async def download_polls(
             self,
             poll_ids: List[int] | int,
