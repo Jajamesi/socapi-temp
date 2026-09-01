@@ -388,6 +388,11 @@ class ExtendedDocument:
                 full_support = " " + ". ".join(answer_str) + "."
                 answer_paragraph.add_run(full_support, style=SUPPORT_STYLE_NAME_CHARACTER)
 
+            if da:=answer.display_answers:
+                display_logic = " " + self.process_display_answers(display_answers=da)
+                answer_paragraph.add_run(display_logic, style=SUPPORT_STYLE_NAME_CHARACTER)
+
+
     def _add_html_paragraph_to_cell(self, html: str, cell, merge_paragraphs: bool = True) -> Paragraph:
         """
         wrapper to add html content into a table cell, returns last paragraph in the cell
@@ -449,25 +454,25 @@ class ExtendedDocument:
             for cell, value in zip(row[1:], values):
                 self.add_styled_html_cell(value, cell)
 
-    def process_display(self, display: Display):
-        pass
-
-    def process_displays(self, displays: List[Display]):
+    def verbose_logic(self, template: str, logics: List[Display | DisplayAnswers | Jump], sep: str=".\n") -> str:
         result = []
-        for d in displays:
-            result.append(f"Вопрос будет показан, если {d.human_display()}")
+        for d in logics:
+            result.append(f"{template}, если {d.human_display()}")
             result.append(JOIN_CONDITION_TO_STR.get(d.join_condition_id))
 
-        full_support = ".\n".join(result[:-1]) # drop last join condition
+        full_support = sep.join(result[:-1])  # drop last join condition
 
-        p = self.doc.add_paragraph(full_support, style=SUPPORT_STYLE_NAME)
+        return full_support
 
-    def process_jump(self, question: Question, question_mapper: Dict[int, str], answer_mapper: Dict[int, str]):
-        pass
-        template = "Если {conditions} переход на {tartet_type} {target}."
-        # template_condition =
-        tmplate_start = "Если"
-        teplate_target = "переход на {target_} Финальная страница."
+
+
+    def process_displays(self, displays: List[Display]):
+        txt = self.verbose_logic(logics=displays, template="Вопрос будет показан")
+        p = self.doc.add_paragraph(txt, style=SUPPORT_STYLE_NAME)
+
+    def process_display_answers(self, display_answers: List[DisplayAnswers]):
+        txt = self.verbose_logic(logics=display_answers, template="Ответ будет показан", sep=' ')
+        return txt
 
 
 
@@ -511,6 +516,6 @@ def export_docx(poll: Poll, file_path: str) -> None:
                 case AnswerTypes.single_answer_per_row | AnswerTypes.multiple_choice_per_row:
                     ext_document.insert_grid(question)
                 case _:
-                    ext_document.process_answers(question.answers)
+                    ext_document.process_answers(answers=question.answers)
 
     document.save(file_path)
