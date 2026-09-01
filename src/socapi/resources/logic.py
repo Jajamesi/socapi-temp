@@ -77,6 +77,32 @@ class Logic(BaseModel):
 
     _poll: Optional['Poll'] = PrivateAttr(default=None)
 
+    _str_template: str = PrivateAttr(default="в вопросе {reference_question_order} {comparator_reference}.")
+
+    def human_display(self, show_join=True) -> str:
+
+        reference_question = self._poll.get_question_by_id(self.reference_question_id)
+
+        if type(reference_question) is ChildQuestion:
+            answer_source_question = reference_question._parent_question
+        elif type(reference_question) is Question:
+            answer_source_question = reference_question
+        else:
+            raise ValueError("Incorrect reference question type")
+
+        if self.reference_answer_id:
+            reference_answer = sorted([answer_source_question.get_answer_by_id(a).order for a in self.reference_answer_id])
+        elif self.reference_answer_value:
+            reference_answer = self.reference_answer_value
+        else:
+            reference_answer = None
+
+        return self._str_template.format(
+            reference_question_order = reference_question.poll_order,
+            comparator_reference = COMPARATOR_TEMPLATES.get(self.comparator_id).format(reference_answers=reference_answer),
+            join_condition = JOIN_CONDITION_TO_STR.get(self.join_condition_id),
+        )
+
 
 class Jump(Logic):
     block_id: Optional[int] = None
@@ -117,33 +143,22 @@ class Display(Logic):
     target_question_id: Optional[int] = None
     target_page_id: Optional[int] = None
 
-    _str_template: str = PrivateAttr(default="в вопросе {reference_question_order} {comparator_reference}.")
+    # _str_template: str = PrivateAttr(default="в вопросе {reference_question_order} {comparator_reference}.")
+    #
+    # def human_display(self, show_join=True) -> str:
+    #
+    #     reference_question = self._poll.get_question_by_id(self.reference_question_id)
+    #
+    #     if type(reference_question) is ChildQuestion:
+    #         answer_source_question = reference_question._parent_question
+    #     elif type(reference_question) is Question:
+    #         answer_source_question = reference_question
+    #     else:
+    #         raise ValueError("Incorrect reference question type")
 
-    def human_display(self, show_join=True) -> str:
-
-        reference_question = self._poll.get_question_by_id(self.reference_question_id)
-
-        if type(reference_question) is ChildQuestion:
-            answer_source_question = reference_question._parent_question
-        elif type(reference_question) is Question:
-            answer_source_question = reference_question
-        else:
-            raise ValueError("Incorrect reference question type")
 
 
 
-        if self.reference_answer_id:
-            reference_answer = sorted([answer_source_question.get_answer_by_id(a).order for a in self.reference_answer_id])
-        elif self.reference_answer_value:
-            reference_answer = self.reference_answer_value
-        else:
-            reference_answer = None
-
-        return self._str_template.format(
-            reference_question_order = reference_question.poll_order,
-            comparator_reference = COMPARATOR_TEMPLATES.get(self.comparator_id).format(reference_answers=reference_answer),
-            join_condition = JOIN_CONDITION_TO_STR.get(self.join_condition_id),
-        )
 
 
 class DisplayAnswers(Logic):
