@@ -291,7 +291,7 @@ class ParserClient(BaseModel):
             }
         )
 
-        response = await self._request(request=request)
+        response: Response = await self._request(request=request)
 
         self.access_token = response.result.get("session_token")
         self._token_expires_on = datetime.now() + timedelta(minutes=TOKEN_TTL)
