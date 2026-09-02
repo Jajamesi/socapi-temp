@@ -504,10 +504,6 @@ class PollResource(BaseResource):
         # bind parent poll to every nested item to have access to logics
         poll = polls.Poll.model_validate(poll)
 
-        # TODO: cross-link nested items back to the parent poll, e.g.
-        #   poll.rebind_questions() / poll.rebind_logics() / poll.rebind_blocks() / poll.count_questions()
-        # Not implemented yet.
-
         return poll
 
     async def _export_poll(
