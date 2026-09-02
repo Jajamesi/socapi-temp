@@ -701,10 +701,13 @@ class QuestionResource(BaseResource):
             json_=payload.model_dump()
         )
         response = await self._request(request=request)
-        return [
-            questions.Question(**q, _poll_order=i)
-            for i, q in enumerate(response.result, start=1)  # assume it is sorted by backend
-        ]
+
+        result = []
+        for i, q in enumerate(response.result, start=1):  # assume it is sorted by backend
+            question = questions.Question(**q)
+            question._poll_order = i
+            result.append(question)
+        return result
 
 
 class CounterResource(BaseResource):

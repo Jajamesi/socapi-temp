@@ -30,7 +30,7 @@ class Block(BaseModel):
     title: str = Field(default="")
     description: str = Field(default="")
     created_at: Optional[datetime] = None
-    questions: List[Question] = Field(default_factory=list)
+    questions: Optional[List[Question]] = Field(default_factory=list)
     poll_id: int
     is_panel: bool = False
 
