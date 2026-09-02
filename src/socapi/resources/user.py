@@ -1,16 +1,16 @@
+from __future__ import annotations
+
 from typing import Optional, List, Any
 from datetime import datetime
 
 from pydantic import BaseModel, Field, EmailStr, ConfigDict, field_validator
 
 class User(BaseModel):
-    """
-    returned by /api/profile
-    """
+    """An operator/user account, as returned by ``/api/profile``."""
     id: int
     telegram_id: int
     login: str
-    password: Optional[str] = None
+    password: Optional[str] = Field(default=None, exclude=True)
     surname: str
     name: str
     patronymic: Optional[str] = None
@@ -26,6 +26,7 @@ class User(BaseModel):
 
 
 class CreatedAtFilter(BaseModel):
+    """``created_at`` date-range filter for :class:`UserGetPayload`."""
     model_config = ConfigDict(extra="forbid")
 
     from_: datetime | None = Field(default=None, alias="from")
@@ -33,6 +34,7 @@ class CreatedAtFilter(BaseModel):
 
 
 class UserGetPayload(BaseModel):
+    """Request body for listing/searching users."""
     model_config = ConfigDict(
         extra="forbid",
         populate_by_name=True,
@@ -53,7 +55,8 @@ class UserGetPayload(BaseModel):
 
     @field_validator("meta", mode="before")
     @classmethod
-    def normalize_to_list(cls, value):
+    def normalize_to_list(cls, value: Any) -> Any:
+        """Allow passing a single meta id (``5``) instead of requiring ``[5]``."""
         if isinstance(value, int):
             return [value]
         return value

@@ -1,10 +1,5 @@
-from email.policy import default
-from operator import gt
-
-
 from pydantic import BaseModel, model_validator, computed_field, field_validator, ValidationError, Field
 from typing import Optional, Literal, Union, List, LiteralString, Dict
-from urllib.parse import urljoin
 from enum import StrEnum
 
 
@@ -32,19 +27,6 @@ class Endpoint(StrEnum):
     display_logic_get = "/api/logic/display/getbypoll"
     counters_get = "/api/counter/list"
     sources_get = "/api/source/list"
-
-
-
-
-    user = 'user/'
-    role = 'role/'
-    poll = 'poll/'
-    meta = 'meta/'
-    question = 'question/'
-    status = "status/"
-    block = "block/"
-    page = "page/"
-    counter = "counter/"
 
 
 ConstructorHost = Literal[
