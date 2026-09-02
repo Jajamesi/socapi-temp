@@ -1,10 +1,5 @@
-from email.policy import default
-from operator import gt
-
-
 from pydantic import BaseModel, model_validator, computed_field, field_validator, ValidationError, Field
 from typing import Optional, Literal, Union, List, LiteralString, Dict
-from urllib.parse import urljoin
 from enum import StrEnum
 
 
@@ -32,19 +27,6 @@ class Endpoint(StrEnum):
     display_logic_get = "/api/logic/display/getbypoll"
     counters_get = "/api/counter/list"
     sources_get = "/api/source/list"
-
-
-
-
-    user = 'user/'
-    role = 'role/'
-    poll = 'poll/'
-    meta = 'meta/'
-    question = 'question/'
-    status = "status/"
-    block = "block/"
-    page = "page/"
-    counter = "counter/"
 
 
 ConstructorHost = Literal[
@@ -81,35 +63,3 @@ class Constructor(BaseModel):
             EndpointType.BASE: self.base_url,
             EndpointType.ADMIN: self.admin_url,
         }
-
-
-
-#
-# class ParserConfig(BaseModel):
-#     """
-#         Core config for sequential requests
-#         Shared config properties and internal Constructor class
-#
-#     """
-#     constructor: Union[ConstructorHost, Constructor]
-#     username: str
-#     password: str
-#
-#     max_concurrency: int = Field(default=10, gt=0, le=10, description="general max concurency")
-#     download_concurrency: int = Field(default=3, gt=0, le=5, description="to avoid backend overload")
-#     timeout: int = Field(default=30, gt=0, le=600)
-#     request_cooldown: float = Field(default=0.01, gt=0, le=20, description="request between cooldowns to avoid backend overload")
-#     enable_tracer: bool = True
-#     verify_ssl: bool = True
-#
-#     @field_validator('constructor', mode='before')
-#     @classmethod
-#     def validate_constructor(cls, value) -> Constructor:
-#         if isinstance(value, Constructor):
-#             return value
-#         elif isinstance(value, str):
-#             try:
-#                 return Constructor(name=value)
-#             except:
-#                 raise
-#         raise ValidationError("constructor must be string or Constructor")

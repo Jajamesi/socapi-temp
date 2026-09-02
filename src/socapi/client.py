@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import aiohttp
 from dataclasses import dataclass
@@ -14,6 +16,8 @@ from . import config, exceptions
 
 from .resources import user, pages, polls, blocks, questions, logic, counters, sources
 
+TOKEN_TTL = 30 # strict token TTL
+MAX_CHUNK_SIZE = 1000 # N items to return paginated resources
 HttpMethod = Literal[
     "GET",
     "POST",
@@ -23,14 +27,23 @@ HttpMethod = Literal[
     "HEAD",
     "OPTIONS",
 ]
+"""HTTP verbs accepted by the constructor API."""
 
+P = ParamSpec("P")
+T = TypeVar("T")
 
-def retry(n_attempts=3, delay=1):
+def retry(n_attempts: int = 3, delay: float = 1):
     """
-    Retry decorated function in case of non-auth related errors
-    :param n_attempts:
-    :param delay:
-    :return:
+    Retry the decorated coroutine when it fails with a transient connection
+    or timeout error. API-level errors (e.g. 4xx/5xx responses that raise
+    ``exceptions.*Error``) are intentionally NOT retried here, only network
+    level failures.
+
+    Uses exponential backoff with jitter: ``delay * 2 ** attempt`` plus a
+    random 0-0.5s offset, to avoid a thundering herd on the API.
+
+    :param n_attempts: total number of attempts (including the first one).
+    :param delay: base delay in seconds before the backoff multiplier.
     """
 
     def decorator(func):
@@ -55,16 +68,20 @@ def retry(n_attempts=3, delay=1):
     return decorator
 
 
-P = ParamSpec("P")
-T = TypeVar("T")
-
-
 def re_auth(
     func: Callable[P, Awaitable[T]],
 ) -> Callable[P, Awaitable[T]]:
+    """
+    Wrap a ``BaseResource`` method so it transparently (re)authenticates.
+
+    On first call this makes sure the owning :class:`ParserClient` has run
+    its initial authorization. If the wrapped call fails because the token
+    is missing or invalid, the client re-authorizes once and the call is
+    retried exactly one more time.
+    """
+
     @functools.wraps(func)
     async def wrapper(self: "BaseResource", *args: P.args, **kwargs: P.kwargs) -> T:
-
         # run initial authentication if needed
         await self._client._initial_authorizing()
 
@@ -82,34 +99,44 @@ def re_auth(
 
 class Request(BaseModel):
     """
-    Validation class fot all requests to API
+    Validation/normalization wrapper for every request sent to the API.
+
+    NOTE: ``host`` and ``endpoint`` are combined with ``urllib.parse.urljoin``
+    in :attr:`path`. ``urljoin`` treats the last path segment of ``host`` as
+    a "file" and drops it if ``host`` doesn't end in ``/`` (e.g.
+    ``urljoin("https://x.com/api", "foo") == "https://x.com/foo"``, not
+    ``.../api/foo``). Make sure ``host`` values coming from
+    ``config.Constructor`` always end with a trailing slash.
     """
+
     method: HttpMethod
     host: str
     endpoint: config.Endpoint
     access_token: Optional[str] = None
     data: Mapping[str, Any] | None = None
-    json_: Mapping[str, Any] | None = None
+    # Mutated in-place for pagination (see BaseResource._fetch_by_chunks),
+    # hence Dict rather than the read-only Mapping used by data/params.
+    json_: Dict[str, Any] | None = None
     params: Mapping[str, Any] | None = None
 
     @computed_field
     @property
     def path(self) -> str:
+        """Full request URL built from ``host`` and ``endpoint``."""
         return urljoin(self.host, str(self.endpoint).lstrip("/"))
 
     @computed_field
     @property
     def headers(self) -> Dict[str, str]:
-        h = {"user-agent":  "socapi"}
+        """Request headers, including bearer auth when a token is set."""
+        h = {"user-agent":  "socapi"} # for explicit marker on server side
         if self.access_token:
             h["authorization"] = self.access_token
         return h
 
 
 class Response(BaseModel):
-    """
-    API response structure
-    """
+    """Parsed JSON envelope returned by the constructor API."""
     status: int
     error: Optional[str]
     result: Dict[str, Any]  | List[Any] | bool | None = Field(default_factory=list)
@@ -118,20 +145,34 @@ class Response(BaseModel):
 @dataclass
 class ClientContext:
     """
-    Store the common web params
+    Bundle of the common per-request web params (session, token, semaphore).
+
+    Not currently implemented anywhere - resources reach these
+    values through ``self._client`` instead. Kept in case a future refactor
+    wants to pass a lightweight context object into resources instead of the
+    whole client.
     """
+
     session: aiohttp.ClientSession
     auth_token: str
     semaphore: asyncio.Semaphore
 
 
-
-
 class ParserClient(BaseModel):
     """
-    Main class that realizes underlying REST API requests
-    Could be initialized directly with acces token or login password pair
+    Main entry point for the constructor REST API.
+
+    Can be initialized either with a ready-made ``access_token`` or with a
+    ``login``/``password`` pair (in which case authorization happens lazily
+    on the first request with required authentication). Individual API areas are exposed as
+    resource namespaces, e.g. ``client.poll.get_poll_structure(...)``.
+
+    Usage::
+
+        async with ParserClient(host=..., login=..., password=...) as client:
+            poll = await client.poll.get_poll_structure(poll_id=123)
     """
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     host: config.ConstructorHost
@@ -158,6 +199,7 @@ class ParserClient(BaseModel):
     _token_expires_on: Optional[datetime] = PrivateAttr(default=None)
 
     def model_post_init(self, __context: Any) -> None:
+        """Wire up the concurrency primitives and resource namespaces."""
         self._semaphore = asyncio.Semaphore(self.max_concurrency)
         self._constructor = config.Constructor(name=self.host)
         # resource namespaces
@@ -171,27 +213,41 @@ class ParserClient(BaseModel):
         self.source =  SourceResource(self)
 
 
-    def _login_password_valid(self):
+    def _login_password_valid(self) -> bool:
+        """True if both ``login`` and ``password`` were provided."""
         return self.login is not None and self.password is not None
 
 
     @model_validator(mode="after")
-    def validate_credentials(self):
+    def validate_credentials(self) -> "ParserClient":
+        """Require either an access token or a login/password pair."""
         if not self._login_password_valid() and self.access_token is None:
             raise ValueError("Invalid auth credentials")
+        return self
 
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "ParserClient":
         self._session = aiohttp.ClientSession()
         return self
 
 
-    async def __aexit__(self, *exc):
+    async def __aexit__(self, *exc) -> None:
         await self._session.close()
 
 
     @retry()
     async def _request(self, request: Request) -> Response | str | bytes | None:
+        """
+        Perform the actual HTTP call for ``request``, bounded by the
+        client's concurrency semaphore.
+
+        Returns a parsed :class:`Response` for JSON payloads, raw ``bytes``
+        for CSV payloads (e.g. poll exports), or ``None`` for any other
+        successful response with no body to parse.
+
+        :raises exceptions.*Error: for JSON responses with ``status >= 400``.
+        """
+
         kwargs = {
             "data": request.data,
             "json": request.json_,
@@ -207,30 +263,24 @@ class ParserClient(BaseModel):
                     request.path,
                     **kwargs,
             ) as resp:
-
-
-
                 content_type = resp.headers.get("Content-Type", "")
                 if content_type.startswith("application/json"):
-                    resp_json = Response(**await resp.json())
+                    parsed = Response(**await resp.json())
 
                     if resp.status >= 400:
-                        raise exceptions.get_error(resp_json)
+                        raise exceptions.get_error(parsed)
 
-                    return  resp_json
+                    return  parsed
 
                 elif content_type.startswith("text/csv"):
                     return await resp.read()
 
-
-
-
                 resp.raise_for_status()
-
                 return None
 
 
-    async def _authorize(self):
+    async def _authorize(self) -> None:
+        """Log in with ``login``/``password`` and store the session token."""
         request = Request(
             method="POST",
             host=self._constructor.admin_url,
@@ -241,34 +291,35 @@ class ParserClient(BaseModel):
             }
         )
 
-        response = await self._request(request=request)
+        response: Response = await self._request(request=request)
 
         self.access_token = response.result.get("session_token")
-        self._token_expires_on = datetime.now() + timedelta(minutes=30)
+        self._token_expires_on = datetime.now() + timedelta(minutes=TOKEN_TTL)
 
 
-    async def _initial_authorizing(self):
+    async def _initial_authorizing(self) -> None:
         """
-        run with lock to prevent concurrent token check and reclaim
+        Authorize once if no token is set yet.
+
+        Runs under a lock so concurrent callers don't race to check-and-set
+        the token, which would otherwise trigger duplicate login requests.
         """
         async with self._lock:
             if self.access_token is None:
                 await self._authorize()
 
 
-
 class BaseResource:
-    """
-    Parent class for specific resources to use. Handle common API structure
-    """
+    """Parent class for specific resources. Handles the common request/auth plumbing."""
+
     def __init__(self, client: ParserClient):
         self._client = client
 
     @re_auth
-    async def _request(self, request: Request) -> Response:
+    async def _request(self, request: Request) -> Response | str | bytes | None:
+        """Attach the current access token and delegate to the client."""
         request.access_token = self._client.access_token
         return await self._client._request(request=request)
-
 
 
     async def _fetch_by_chunks(
@@ -276,16 +327,23 @@ class BaseResource:
             limit: int,
             process_chunk: Callable[..., T],
             request: Request,
-            return_max: Optional[int] = 1000,
+            return_max: Optional[int] = MAX_CHUNK_SIZE,
     ) -> List[T]:
         """
-        Read paginated data one by one untill the end
-        :param limit:
-        :param process_chunk:
-        :param kwargs:
-        :return:
+        Page through a paginated endpoint until it runs out of items,
+        parsing each raw item with ``process_chunk``.
+
+        :param limit: page size sent as ``limit`` in the request body.
+        :param process_chunk: called as ``process_chunk(**item)`` for every
+            raw item in a page; typically a model constructor.
+        :param request: base request to page through. Its ``json_`` dict is
+            mutated in place to set ``limit``/``offset`` on every iteration.
+        :param return_max: stop once at least this many items have been
+            fetched. ``None`` means no cap - keep going until the API
+            returns a short (final) page.
         """
-        all_items = []
+
+        all_items: List[T] = []
         offset = 0
 
         while True:
@@ -293,7 +351,7 @@ class BaseResource:
             request.json_["offset"] = offset
             chunk_data = await self._request(request=request)
 
-            items: List[Any] = chunk_data.result # to be list
+            items: List[Any] = chunk_data.result # has to be list
 
             all_items.extend(
                 process_chunk(**item)
@@ -312,17 +370,19 @@ class BaseResource:
         return all_items
 
 
-
 class UserResource(BaseResource):
-    async def profile(self) -> user.User:
+    """API area for the operator/user directory."""
 
+    async def profile(self) -> user.User:
+        """Fetch the profile of the currently authenticated user."""
         request = Request(
             method="POST",
             host=self._client._constructor.admin_url,
             endpoint=config.Endpoint.profile,
         )
-        r = await self._request(request=request)
-        return user.User(**r.result)
+        response = await self._request(request=request)
+        return user.User(**response.result)
+
 
     async def get_all(
             self,
@@ -338,6 +398,13 @@ class UserResource(BaseResource):
             meta: list[Any] | None = None,
             return_max: Optional[int] = None,
     ) -> List[user.User]:
+        """
+        List users matching the given filters, paginating automatically.
+
+        :param limit: page size for the underlying paginated requests.
+        :param return_max: stop after roughly this many users; ``None``
+            fetches every matching user.
+        """
         payload = user.UserGetPayload(
             created_at=created_at,
             disabled=disabled,
@@ -360,12 +427,16 @@ class UserResource(BaseResource):
         def parse_user(**data) -> user.User:
             return user.User(**data)
 
-        r = await self._fetch_by_chunks(request=request, limit=limit, process_chunk=parse_user, return_max=return_max)
-        return r
+        return await self._fetch_by_chunks(
+            request=request, limit=limit, process_chunk=parse_user, return_max=return_max
+        )
 
 
 class PageResource(BaseResource):
+    """API area for survey pages - start / finish / disqualified."""
+
     async def get_pages(self, poll_id: int) -> List[pages.Page]:
+        """List all pages belonging to ``poll_id``."""
         payload = pages.GetPagesPayload(poll_id=poll_id)
 
         request = Request(
@@ -374,12 +445,15 @@ class PageResource(BaseResource):
             endpoint=config.Endpoint.page_get,
             json_=payload.model_dump()
         )
-        r = await self._request(request=request)
-        return [pages.Page(**p) for p in r.result]
+        response = await self._request(request=request)
+        return [pages.Page(**p) for p in response.result]
 
 
 class PollResource(BaseResource):
+    """API area for poll (survey) metadata, structure and export."""
+
     async def get_poll_head(self, poll_id: int) -> polls.Poll:
+        """Fetch just the poll header (no nested blocks/questions/logic)."""
         payload = polls.GetPollHeaderPayload(id=poll_id)
 
         request = Request(
@@ -388,12 +462,15 @@ class PollResource(BaseResource):
             endpoint=config.Endpoint.poll_header_get,
             json_=payload.model_dump()
         )
-        r = await self._request(request=request)
-        return polls.Poll(**r.result)
+        response = await self._request(request=request)
+        return polls.Poll(**response.result)
 
 
     async def get_poll_structure(self, poll_id: int) -> polls.Poll:
-
+        """
+        Assemble the full poll: header, blocks, questions, logic, counters
+        and pages, fetched concurrently and stitched together.
+        """
         poll, poll_blocks = await asyncio.gather(
             self.get_poll_head(poll_id=poll_id),
             self._client.block.get_blocks(poll_id=poll_id)
@@ -403,7 +480,6 @@ class PollResource(BaseResource):
         question_tasks = [
             self._client.question.get_block_question(block_id=block.id) for block in poll_blocks
         ]
-
         questions_lists = await asyncio.gather(*question_tasks)
 
         for block, block_questions in zip(poll_blocks, questions_lists):
@@ -428,14 +504,7 @@ class PollResource(BaseResource):
         # bind parent poll to every nested item to have access to logics
         poll = polls.Poll.model_validate(poll)
 
-        # poll.rebind_questions()
-        # poll.rebind_logics()
-        # poll.rebind_blocks()
-        # poll.count_questions()
-
-
         return poll
-
 
     async def _export_poll(
             self,
@@ -443,6 +512,7 @@ class PollResource(BaseResource):
             export_format: polls.ExportFormat | polls.EXPORT_FORMATS = polls.ExportFormat.CSV,
             filter_: polls.ExportFilter = polls.ExportFilter()
     ) -> None:
+        """Kick off an async export job for ``poll_id`` on the server side."""
         payload = polls.ExportPayload(
             poll_id=poll_id,
             format_id=export_format,
@@ -457,7 +527,8 @@ class PollResource(BaseResource):
         )
         await self._request(request=request)
 
-    async def _download_poll(self, uuid: UUID):
+    async def _download_poll(self, uuid: UUID) -> bytes:
+        """Download the finished export identified by ``uuid`` as raw CSV bytes / Excel workbook / SPSS binary."""
         payload = polls.DownloadPayload(uuid=uuid)
 
         request = Request(
@@ -466,10 +537,10 @@ class PollResource(BaseResource):
             endpoint=config.Endpoint.download_poll,
             json_=payload.model_dump(mode='json')
         )
-        r = await self._request(request=request)
-        return  r
+        return await self._request(request=request)
 
-    async def _done_poll(self, uuid: UUID):
+    async def _done_poll(self, uuid: UUID) -> None:
+        """Acknowledge the export ``uuid`` as consumed/finished on the server."""
         payload = polls.DownloadPayload(uuid=uuid)
 
         request = Request(
@@ -480,17 +551,15 @@ class PollResource(BaseResource):
         )
         await self._request(request=request)
 
-
     async def _progress(self) -> List[polls.ProgressStatus]:
+        """Fetch the current status of all in-progress export jobs."""
         request = Request(
             method="POST",
             host=self._client._constructor.admin_url,
             endpoint=config.Endpoint.progress,
-            json_=None
         )
-        r = await self._request(request=request)
-
-        return [polls.ProgressStatus(**s) for s in r.result]
+        response = await self._request(request=request)
+        return [polls.ProgressStatus(**status) for status in response.result]
 
     @validate_call
     async def download_polls(
@@ -499,20 +568,35 @@ class PollResource(BaseResource):
             export_format: polls.ExportFormat | polls.EXPORT_FORMATS = polls.ExportFormat.CSV,
             poll_interval: float | int = 5.0,
             max_concurrent: int = 5,
-    ):
+    ) -> Dict[int, bytes]:
+        """
+        Export and download several polls concurrently.
+
+        For each poll: triggers an export job, waits until a shared poller
+        task observes it as ``DONE`` via :meth:`_progress`, then downloads
+        the file and marks the export as consumed.
+
+        :param poll_ids: one poll id or a list of them. Duplicates are
+            dropped (order-preserving) since two in-flight exports for the
+            same poll id would overwrite each other's "ready" event.
+        :param poll_interval: seconds between progress polls.
+        :param max_concurrent: max number of exports triggered at once.
+        :return: mapping of poll id to the downloaded CSV bytes.
+        """
+
         if isinstance(poll_ids, int):
-            poll_ids=[poll_ids]
+            poll_ids = [poll_ids]
+        else:
+            poll_ids = list(dict.fromkeys(poll_ids))  # de-dupe, preserve order
 
         semaphore = asyncio.Semaphore(max_concurrent)
         in_flight: set[int] = set()
         ready_events: dict[int, asyncio.Event] = {}
-        ready_uuids: dict[int, UUID] = {} # from progress
+        ready_uuids: dict[int, UUID] = {}  # from progress
         results: dict[int, bytes] = {}
 
         async def worker(poll_id: int) -> None:
-            """
-            Export one poll, waits for export, then download and send done
-            """
+            """Export one poll, wait for it to be ready, then download and acknowledge it."""
             async with semaphore:
                 await self._export_poll(poll_id, export_format=export_format)
 
@@ -528,15 +612,13 @@ class PollResource(BaseResource):
                 await self._done_poll(uuid)
 
         async def poller() -> None:
-            """
-            Check export status and set ready_events
-            """
+            """Periodically check export status and unblock finished workers."""
             remaining = set(poll_ids)
             while remaining:
                 if in_flight:
                     statuses = await self._progress()
                     for status in statuses:
-                        if (poll_id:=status.params.poll_id) in in_flight and status.status == polls.ExportStatus.DONE:
+                        if (poll_id := status.params.poll_id) in in_flight and status.status == polls.ExportStatus.DONE:
                             in_flight.discard(poll_id)
                             remaining.discard(poll_id)
                             ready_uuids[poll_id] = status.uuid
@@ -557,11 +639,14 @@ class PollResource(BaseResource):
 
 
 class BlockResource(BaseResource):
+    """API area for survey blocks (groups of questions)."""
+
     async def get_blocks(
             self,
             poll_id: int,
             includes: List[blocks.BlockInclude] = blocks.ALL_BLOCK_INCLUDES
     ) -> List[blocks.Block]:
+        """List all blocks of ``poll_id``, sorted by their display order."""
         payload = blocks.GetBlocksPayload(poll_id=poll_id, includes=includes)
 
         request = Request(
@@ -570,15 +655,19 @@ class BlockResource(BaseResource):
             endpoint=config.Endpoint.blocks_by_poll_get,
             json_=payload.model_dump()
         )
-        r = await self._request(request=request)
-        return sorted([blocks.Block(**b) for b in r.result], key=lambda x: x.order)
+        response = await self._request(request=request)
+        return sorted([blocks.Block(**b) for b in response.result], key=lambda x: x.order)
 
 
 class QuestionResource(BaseResource):
+    """API area for survey questions."""
+
     async def get_block_question(
             self,
             block_id: int,
-            includes: List[questions.QuestionInclude] = questions.ALL_QUESTION_INCLUDES):
+            includes: List[questions.QuestionInclude] = questions.ALL_QUESTION_INCLUDES
+    ) -> List[questions.Question]:
+        """List all questions belonging to ``block_id``, sorted by order."""
         payload = questions.GetBlockQuestionPayload(block_id=block_id, includes=includes)
 
         request = Request(
@@ -587,15 +676,18 @@ class QuestionResource(BaseResource):
             endpoint=config.Endpoint.questions_by_block_get,
             json_=payload.model_dump()
         )
-        r = await self._request(request=request)
-        return sorted([questions.Question(**q) for q in r.result], key=lambda x: x.order)
-
+        response = await self._request(request=request)
+        return sorted([questions.Question(**q) for q in response.result], key=lambda x: x.order)
 
     async def get_poll_questions(
             self,
             poll_id: int,
             includes: List[questions.QuestionInclude] = questions.ALL_QUESTION_INCLUDES
     ) -> List[questions.Question]:
+        """
+        List every question in ``poll_id`` across all blocks, in the order
+        returned by the backend (assumed already poll-ordered).
+        """
         payload = questions.GetPollQuestionPayload(poll_id=poll_id, includes=includes)
 
         request = Request(
@@ -604,16 +696,21 @@ class QuestionResource(BaseResource):
             endpoint=config.Endpoint.questions_by_poll_get,
             json_=payload.model_dump()
         )
-        r = await self._request(request=request)
-        result = [questions.Question(**q, _poll_order=i) for i, q in enumerate(r.result, start=1)] # assume it is sorted by backend
+        response = await self._request(request=request)
+
+        result = []
+        for i, q in enumerate(response.result, start=1):  # assume it is sorted by backend
+            question = questions.Question(**q)
+            question._poll_order = i
+            result.append(question)
         return result
 
 
 class CounterResource(BaseResource):
-    async def get_counters(
-            self,
-            poll_id: int
-    ) -> List[counters.Counter]:
+    """API area for poll counters (quota-style tallies)."""
+
+    async def get_counters(self, poll_id: int) -> List[counters.Counter]:
+        """List all counters configured for ``poll_id``."""
         payload = counters.GetCounterPayload(poll_id=poll_id)
 
         request = Request(
@@ -622,12 +719,15 @@ class CounterResource(BaseResource):
             endpoint=config.Endpoint.counters_get,
             json_=payload.model_dump()
         )
-        r = await self._request(request=request)
-        return [counters.Counter(**c) for c in r.result]
+        response = await self._request(request=request)
+        return [counters.Counter(**c) for c in response.result]
 
 
 class LogicResource(BaseResource):
+    """API area for poll branching/display logic."""
+
     async def get_jumps(self, poll_id: int) -> List[logic.Jump]:
+        """List the jump (skip-logic) rules configured for ``poll_id``."""
         payload = logic.GetLogicPayload(poll_id=poll_id)
 
         request = Request(
@@ -636,10 +736,11 @@ class LogicResource(BaseResource):
             endpoint=config.Endpoint.jump_logic_get,
             json_=payload.model_dump()
         )
-        r = await self._request(request=request)
-        return [logic.Jump(**l) for l in r.result]
+        response = await self._request(request=request)
+        return [logic.Jump(**jump) for jump in response.result]
 
     async def get_question_display(self, poll_id: int) -> List[logic.Display]:
+        """List the question display/visibility rules for ``poll_id``."""
         payload = logic.GetLogicPayload(poll_id=poll_id)
 
         request = Request(
@@ -648,10 +749,11 @@ class LogicResource(BaseResource):
             endpoint=config.Endpoint.display_logic_get,
             json_=payload.model_dump()
         )
-        r = await self._request(request=request)
-        return [logic.Display(**l) for l in r.result]
+        response = await self._request(request=request)
+        return [logic.Display(**display) for display in response.result]
 
     async def get_answer_display(self, poll_id: int) -> List[logic.DisplayAnswers]:
+        """List the answer display/visibility rules for ``poll_id``."""
         payload = logic.GetLogicPayload(poll_id=poll_id)
 
         request = Request(
@@ -660,16 +762,27 @@ class LogicResource(BaseResource):
             endpoint=config.Endpoint.display_answer_logic_get,
             json_=payload.model_dump()
         )
-        r = await self._request(request=request)
-        return [logic.DisplayAnswers(**l) for l in r.result]
+        response = await self._request(request=request)
+        return [logic.DisplayAnswers(**display) for display in response.result]
 
 
 class SourceResource(BaseResource):
-    async def get_sources(self):
+    """API area for respondent traffic sources."""
+
+    async def get_sources(self) -> List[sources.Source]:
+        """List all configured traffic sources."""
         request = Request(
             method="POST",
             host=self._client._constructor.admin_url,
             endpoint=config.Endpoint.sources_get,
         )
-        r = await self._request(request=request)
-        return [sources.Source(**s) for s in r.result]
+        response = await self._request(request=request)
+        return [sources.Source(**s) for s in response.result]
+
+
+# ParserClient's resource-namespace fields reference these classes by name
+# before they're defined further down this module. `from __future__ import
+# annotations` (top of file) makes that legal at class-definition time, but
+# pydantic still needs the names to exist before it can finish building the
+# model - hence resolving them explicitly here, once everything is defined.
+ParserClient.model_rebuild()
