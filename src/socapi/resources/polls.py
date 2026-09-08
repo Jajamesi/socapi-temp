@@ -208,6 +208,7 @@ class Poll(BaseModel):
                 child._poll_order = order + j / 10
             order += 1
         return self
+
     def formats_to_polars_schema(variable_formats: dict[str, str]) -> dict:
         """
         variable_formats — это то же самое, что meta.variable_formats
