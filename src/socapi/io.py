@@ -1,9 +1,12 @@
-from typing import List, Optional, Type, TypeVar, TYPE_CHECKING, Dict
+from __future__ import annotations
+
+from typing import List, Type, TypeVar, TYPE_CHECKING, Optional
 import orjson
 from pydantic import BaseModel
+from enum import StrEnum
 
 from docx import Document
-from docx.shared import RGBColor, Pt, Inches
+from docx.shared import RGBColor, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.style import WD_STYLE_TYPE
 from docx.text.paragraph import Paragraph
@@ -11,6 +14,14 @@ from docx.table import Table
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
+# NOTE: the PyPI package literally named `html4docx` (0.0.3) does NOT
+# export `HtmlToDocx` - it's an unrelated, seemingly abandoned docx-to-html
+# converter (confirmed by installing it). The `HtmlToDocx` class with
+# `add_html_to_document`/`add_html_to_cell` methods used below comes from
+# a different project (e.g. the pqzx/html4docx GitHub repo, often installed
+# via `pip install git+https://github.com/pqzx/html4docx.git`). Make sure
+# your actual dependency pin points at that, not the PyPI package of the
+# same name, or this import silently gets the wrong library.
 from html4docx import HtmlToDocx
 from bs4 import BeautifulSoup
 import re
@@ -19,25 +30,22 @@ if TYPE_CHECKING:
     from .resources.polls import Poll
     from .resources.blocks import Block
 from .resources.logic import DisplayAnswers, Display, Jump, JOIN_CONDITION_TO_STR
-from .resources.questions import AnswerTypes, Question, Answer, QuestionInclude
+from .resources.questions import AnswerTypes, Question, Answer
 
 T = TypeVar("T", bound=BaseModel)
 
-def to_json(self: BaseModel, file_path: str) -> None:
+
+def to_json(model: BaseModel, file_path: str) -> None:
+    """Serialize a pydantic model to a pretty-printed JSON file."""
     with open(file_path, "wb") as f:
-        f.write(orjson.dumps(
-            self.model_dump(mode="json"),
-            option=orjson.OPT_INDENT_2,
-        )
-        )
+        f.write(orjson.dumps(model.model_dump(mode="json"), option=orjson.OPT_INDENT_2))
 
 
 def from_json(cls: Type[T], file_path: str) -> T:
+    """Load and validate a pydantic model of type ``cls`` from a JSON file."""
     with open(file_path, "rb") as f:
         data = orjson.loads(f.read())
-
     return cls.model_validate(data)
-
 
 
 DEFAULT_STYLE_NAME = 'Arial 11'
@@ -45,27 +53,49 @@ SUPPORT_STYLE_NAME = 'Support'
 SUPPORT_STYLE_NAME_CHARACTER = 'Support Character'
 DEFAULT_FONT_NAME = 'Arial'
 DEFAULT_FONT_SIZE = 11
-DEFAULT_COLOR = RGBColor(0,0,0)
-BLUE_COLOR = RGBColor(0,112,192)
+DEFAULT_COLOR = RGBColor(0, 0, 0)
+BLUE_COLOR = RGBColor(0, 112, 192)
 BLOCK_HEADER_FILL_COLOR = 'D9EAF7'
 
 ANSWER_TYPES_LABELS = {
-    AnswerTypes.single_answer : 'Один ответ',
-    AnswerTypes.dropdown : "Выпадающий список",
-    AnswerTypes.single_answer_per_row : "Один ответ по строке",
-    AnswerTypes.multiple_choice : "Множественный выбор",
-    AnswerTypes.open_question : "Открытый вопрос",
-    AnswerTypes.ranking : "Ранжирование",
-    AnswerTypes.slider : "Ползунок",
-    AnswerTypes.multiple_choice_per_row : "Множественный выбор по строке",
-    AnswerTypes.info_material : "Ознакомительный материал",
-    AnswerTypes.email_request : "Запрос почты"
+    AnswerTypes.single_answer: 'Один ответ',
+    AnswerTypes.dropdown: "Выпадающий список",
+    AnswerTypes.single_answer_per_row: "Один ответ по строке",
+    AnswerTypes.multiple_choice: "Множественный выбор",
+    AnswerTypes.open_question: "Открытый вопрос",
+    AnswerTypes.ranking: "Ранжирование",
+    AnswerTypes.slider: "Ползунок",
+    AnswerTypes.multiple_choice_per_row: "Множественный выбор по строке",
+    AnswerTypes.info_material: "Ознакомительный материал",
+    AnswerTypes.email_request: "Запрос почты",
 }
 
 
+class BlockNames(StrEnum):
+    description = "Описание блока (видно респонденту):"
+    header = "Заголовок блока (видно респонденту):"
 
 
-def set_table_borders(table: Table):
+class QuestionSpecs(StrEnum):
+    max_answers = "Максимум ответов: {x}"
+    optional = "Необязателен к ответу"
+    randomized = "Перемешивать ответы"
+    children_randomized = "Перемешивать подвопросы"
+
+class AnswerSpec(StrEnum):
+    skip_randomize = "Не перемешивать"
+    exclude = "Исключающий ответ"
+    has_input = "Поле для ввода"
+    input_validation = "Маска" # TODO specific masks
+
+# class LogicTemplates(StrEnum):
+#     display="Вопрос будет показан"
+#     jump="Переход на {target_type} {target}"
+#     display_answer="Ответ будет показан"
+
+
+def set_table_borders(table: Table) -> None:
+    """Add thin black borders on every edge/gridline of ``table``."""
     tbl = table._tbl
     tblPr = tbl.tblPr
 
@@ -83,8 +113,12 @@ def set_table_borders(table: Table):
 
 
 def replace_paragraphs_with_breaks(html: str) -> str:
+    """
+    Flatten every top-level ``<p>`` in ``html`` into a single paragraph
+    joined by ``<br>``, so html4docx renders it as one Word paragraph with
+    line breaks instead of several separate paragraphs.
+    """
     soup = BeautifulSoup(html, "html.parser")
-
     paragraphs = soup.find_all("p")
 
     # If no <p> tags → treat as plain string
@@ -95,112 +129,97 @@ def replace_paragraphs_with_breaks(html: str) -> str:
         return f"<p>{text}</p>"
 
     parts = []
-
     for p in paragraphs:
         content = p.decode_contents().strip()
-
         content = re.sub(r"^(<br\s*/?>\s*)+", "", content, flags=re.IGNORECASE)
         content = re.sub(r"(<br\s*/?>\s*)+$", "", content, flags=re.IGNORECASE)
-
         if content:
             parts.append(content)
 
     return "<br>".join(parts)
 
 
-
 class ExtendedDocument:
-    """
-    document wrapper with styling actions
-    """
+    """Document wrapper with the styling/layout actions ``export_docx`` needs."""
 
     def __init__(self):
         self.doc = Document()
         self.parser = HtmlToDocx(default_paragraph_style=DEFAULT_STYLE_NAME)
 
+    # -- style setup ----------------------------------------------------
 
-    def configure_default_style(self):
-        styles = self.doc.styles
-        style = styles.add_style(DEFAULT_STYLE_NAME, WD_STYLE_TYPE.PARAGRAPH)
+    @staticmethod
+    def _apply_font(
+            style,
+            *,
+            name: str = DEFAULT_FONT_NAME,
+            size: Pt = Pt(DEFAULT_FONT_SIZE),
+            color: RGBColor = DEFAULT_COLOR,
+            italic: bool = False,
+    ) -> None:
+        """Set name/size/color/italic on a docx style's ``.font``."""
+        font = style.font
+        font.name = name
+        font.size = size
+        font.color.rgb = color
+        font.italic = italic
 
-        # configure pafargraph format and spacings
+    @staticmethod
+    def _apply_paragraph_spacing(
+            style,
+            *,
+            space_before: Pt = Pt(0),
+            space_after: Pt = Pt(0),
+            line_spacing: float = 1.0,
+            left_indent: Optional[Pt] = None,
+    ) -> None:
+        """Set spacing/indent on a docx style's ``.paragraph_format``."""
         pf = style.paragraph_format
-        pf.space_before = Pt(18)
-        pf.space_after = Pt(0)
-        pf.line_spacing = 1.0  # single spacing
+        pf.space_before = space_before
+        pf.space_after = space_after
+        pf.line_spacing = line_spacing
+        if left_indent is not None:
+            pf.left_indent = left_indent
 
+    def configure_default_style(self) -> None:
+        style = self.doc.styles.add_style(DEFAULT_STYLE_NAME, WD_STYLE_TYPE.PARAGRAPH)
+        self._apply_paragraph_spacing(style, space_before=Pt(18))
+        self._apply_font(style)
 
-        # Configure font
-        font = style.font
-        font.name = 'Arial'
-        font.size = Pt(11)
-        font.color.rgb = DEFAULT_COLOR
+    def configure_support_style(self) -> None:
+        style = self.doc.styles.add_style(SUPPORT_STYLE_NAME, WD_STYLE_TYPE.PARAGRAPH)
+        self._apply_font(style, color=BLUE_COLOR, italic=True)
+        self._apply_paragraph_spacing(style, space_before=Pt(5), left_indent=Pt(18))
 
-    def configure_support_style(self):
+    def configure_support_character_style(self) -> None:
+        style = self.doc.styles.add_style(SUPPORT_STYLE_NAME_CHARACTER, WD_STYLE_TYPE.CHARACTER)
+        self._apply_font(style, color=BLUE_COLOR, italic=True)
+
+    def modify_heading_style(self) -> None:
+        self._apply_font(self.doc.styles["Heading 1"])
+
+    def format_numberings(self) -> None:
+        """Apply the default font/spacing to Word's built-in numbered-list styles."""
         styles = self.doc.styles
-        style = styles.add_style(SUPPORT_STYLE_NAME, WD_STYLE_TYPE.PARAGRAPH)
-
-        # Configure font
-        font = style.font
-        font.name = 'Arial'
-        font.size = Pt(11)
-        font.color.rgb = BLUE_COLOR
-        font.italic = True
-
-        # configure pafargraph format and spacings
-        pf = style.paragraph_format
-        pf.space_before = Pt(5)
-        pf.space_after = Pt(0)
-        pf.line_spacing = 1.0  # single spacing
-        pf.left_indent = Pt(18)
-
-
-    def configure_support_character_style(self):
-        styles = self.doc.styles
-        style = styles.add_style(SUPPORT_STYLE_NAME_CHARACTER, WD_STYLE_TYPE.CHARACTER)
-
-        # Configure font
-        font = style.font
-        font.name = 'Arial'
-        font.size = Pt(11)
-        font.color.rgb = BLUE_COLOR
-        font.italic = True
-
-
-    def modify_heading_style(self):
-        style = self.doc.styles["Heading 1"]
-
-        # Configure font
-        font = style.font
-        font.name = 'Arial'
-        font.size = Pt(11)
-        font.color.rgb = DEFAULT_COLOR
-
-
-    def format_numberings(self):
-        # set styles for numerated list
-        styles = self.doc.styles
-        for style in ["List Number", "List Number 2"]:
-            styles[style].font.name = DEFAULT_FONT_NAME
-
-            # configure pafargraph format and spacings
-            pf = styles[style].paragraph_format
-
-            pf.space_after = Pt(0)
-            pf.line_spacing = 1.0  # single spacing
+        for name in ("List Number", "List Number 2"):
+            styles[name].font.name = DEFAULT_FONT_NAME
+            self._apply_paragraph_spacing(styles[name])
 
         styles["List Number"].paragraph_format.space_before = Pt(18)
         styles["List Number 2"].paragraph_format.space_before = Pt(5)
 
+    # -- basic content ----------------------------------------------------
 
-    def add_footer(self, title: str):
+    def add_footer(self, title: str) -> None:
         paragraph = self.doc.sections[0].footer.add_paragraph(title)
-        run = paragraph.runs[0]
+        # add_paragraph() only creates a run when `title` is non-empty, so
+        # `.runs[0]` would raise IndexError for an empty title -
+        # fall back to creating the run ourselves in that case.
+        run = paragraph.runs[0] if paragraph.runs else paragraph.add_run(title)
         run.font.name = DEFAULT_FONT_NAME
         run.font.size = Pt(DEFAULT_FONT_SIZE)
 
-
-    def set_title(self, title: str):
+    def set_title(self, title: str) -> None:
         p = self.doc.add_heading(level=0)
         p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
@@ -210,47 +229,33 @@ class ExtendedDocument:
         run.font.color.rgb = DEFAULT_COLOR
         run.bold = True
 
-
     def _add_html_paragraph(self, html: str, merge_paragraphs: bool = True) -> Paragraph:
-        """
-        wrapper to return last paragraph
-        :param html:
-        :return:
-        """
+        """Render ``html`` into the document and return the last paragraph produced."""
         if merge_paragraphs:
             html = replace_paragraphs_with_breaks(html)
         self.parser.add_html_to_document(html, self.doc)
         return self.doc.paragraphs[-1]
 
-
-
-    def set_default_style(self, paragraph: Paragraph):
-        for r in paragraph.runs:
-            font = r.font
+    def set_default_style(self, paragraph: Paragraph) -> Paragraph:
+        for run in paragraph.runs:
+            font = run.font
             font.name = DEFAULT_FONT_NAME
             font.size = Pt(DEFAULT_FONT_SIZE)
         return paragraph
 
-
     def add_styled_html_paragraph(self, html: str) -> Paragraph:
         p = self._add_html_paragraph(html, merge_paragraphs=True)
-        p = self.set_default_style(paragraph=p)
-        return p
+        return self.set_default_style(paragraph=p)
 
-
-    def set_description(self, description: str):
+    def set_description(self, description: str) -> None:
         """
-        set description from html str and set.
-        since description has severall paragrpahs (fragments), apply styling to all
-        :param description:
-        :return:
+        Render a (possibly multi-paragraph) HTML description and style every
+        fragment it produces.
         """
         self.add_styled_html_paragraph(description)
 
-
-    def add_block_header(self, block_title: str):
+    def add_block_header(self, block_title: str) -> None:
         head = self.doc.add_heading(block_title, level=1)
-
         head.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
         # Access paragraph properties
@@ -259,20 +264,18 @@ class ExtendedDocument:
         # Create shading element
         shd = OxmlElement('w:shd')
         shd.set(qn('w:fill'), BLOCK_HEADER_FILL_COLOR)  # Hex color without #
-
-        # Apply shading
         p_pr.append(shd)
 
-
-
-    def list_number(self, par, prev=None, level=None, numbered=True):
+    def list_number(self, par, prev=None, level=None, numbered=True) -> None:
         """
         Workaround to reset list numbering.
         Call after creating new paragraph and pass previous numbered paragraph.
-        If None as previous paragraph passed - numbering will be reset
+        If None as previous paragraph passed - numbering will be reset.
 
+        (Standard python-docx community workaround for restarting a
+        numbered list mid-document, since python-docx has no built-in way
+        to do this - manipulates the underlying OOXML numbering directly.)
         """
-
         xpath_options = {
             True: {"single": "count(w:lvl)=1 and ", "level": 0},
             False: {"single": "", "level": level},
@@ -324,48 +327,46 @@ class ExtendedDocument:
         numPr.get_or_add_numId().val = num_id
         numPr.get_or_add_ilvl().val = level
 
+    def add_input_cell(self):
+        """Render single-cell table for opened input"""
+        table = self.doc.add_table(rows=1, cols=1)
+        set_table_borders(table)
 
-    def process_block(self, block: Block):
+    # -- poll-specific rendering -----------------------------------------
+
+    def process_block(self, block: Block) -> None:
         # page break for visual
         self.doc.add_page_break()
         self.add_block_header(block.name.upper())
 
         if block.description:
-            self.doc.add_paragraph("Описание блока (видно респонденту):", style=SUPPORT_STYLE_NAME)
+            self.doc.add_paragraph(BlockNames.description.value, style=SUPPORT_STYLE_NAME)
             self.add_styled_html_paragraph(block.description)
 
         if block.title:
-            self.doc.add_paragraph("Заголовок блока (видно респонденту):", style=SUPPORT_STYLE_NAME)
+            self.doc.add_paragraph(BlockNames.header.value, style=SUPPORT_STYLE_NAME)
             self.add_styled_html_paragraph(block.title)
 
-
-    def process_question(self, question: Question):
+    def process_question(self, question: Question) -> None:
         question_p = self.add_styled_html_paragraph(question.title)
         question_p.style = self.doc.styles["List Number"]
 
         # add technical info
-        tech_str = []
-        tech_str.append(ANSWER_TYPES_LABELS[question.type_id])
+        tech_str = [ANSWER_TYPES_LABELS.get(question.type_id, question.type_id.name)]
 
         if question.max_answer > 1:
-            tech_str.append(f"Максимум ответов: {question.max_answer}")
-
+            tech_str.append(QuestionSpecs.max_answers.value.format(x=question.max_answer))
         if question.optional:
-            tech_str.append(f"Необязателен к ответу")
-
+            tech_str.append(QuestionSpecs.optional.value)
         if question.randomized:
-            tech_str.append("Перемешивать ответы")
-
+            tech_str.append(QuestionSpecs.randomized.value)
         if question.children_randomized:
-            tech_str.append("Перемешивать подвопросы")
+            tech_str.append(QuestionSpecs.children_randomized.value)
 
         full_support = ".\n".join(tech_str) + "."
+        self.doc.add_paragraph(full_support, style=SUPPORT_STYLE_NAME)
 
-        p = self.doc.add_paragraph(full_support, style=SUPPORT_STYLE_NAME)
-
-
-
-    def process_answers(self, answers: List[Answer]):
+    def process_answers(self, answers: List[Answer]) -> None:
         prev = None
         for answer in answers:
             answer_paragraph = self.add_styled_html_paragraph(answer.title)
@@ -374,29 +375,25 @@ class ExtendedDocument:
             prev = answer_paragraph
 
             answer_str = []
-
             if answer.skip_randomize:
-                answer_str.append("Не перемешивать")
+                answer_str.append(AnswerSpec.skip_randomize.value)
             if answer.exclude_answer:
-                answer_str.append("Исключающий ответ")
+                answer_str.append(AnswerSpec.exclude.value)
             if answer.has_input:
-                answer_str.append("Поле для ввода")
-            if answer.input_validation:
-                answer_str.append("Маска")
+                answer_str.append(AnswerSpec.has_input.value)
+            if answer.input_validation:  # InputValidations.none == "" is falsy
+                answer_str.append(AnswerSpec.input_validation.value)
 
             if answer_str:
                 full_support = " " + ". ".join(answer_str) + "."
                 answer_paragraph.add_run(full_support, style=SUPPORT_STYLE_NAME_CHARACTER)
 
-            if da:=answer.display_answers:
-                display_logic = " " + self.process_display_answers(display_answers=da)
+            if display_answers := answer.display_answers:
+                display_logic = " " + self.process_display_answers(display_answers=display_answers)
                 answer_paragraph.add_run(display_logic, style=SUPPORT_STYLE_NAME_CHARACTER)
 
-
     def _add_html_paragraph_to_cell(self, html: str, cell, merge_paragraphs: bool = True) -> Paragraph:
-        """
-        wrapper to add html content into a table cell, returns last paragraph in the cell
-        """
+        """Render ``html`` into a table cell and return the last paragraph produced."""
         if merge_paragraphs:
             html = replace_paragraphs_with_breaks(html)
         self.parser.add_html_to_cell(html, cell)
@@ -404,30 +401,41 @@ class ExtendedDocument:
 
     def add_styled_html_cell(self, html: str, cell) -> Paragraph:
         p = self._add_html_paragraph_to_cell(html, cell, merge_paragraphs=True)
-        p = self.set_default_style(paragraph=p)
-        return p
+        return self.set_default_style(paragraph=p)
 
-    def set_fixed_layout(self, table: Table):
+    def set_fixed_layout(self, table: Table) -> None:
         """Force fixed column widths (otherwise Word ignores cell/column widths)."""
         tbl_pr = table._tbl.tblPr
         layout = OxmlElement('w:tblLayout')
         layout.set(qn('w:type'), 'fixed')
         tbl_pr.append(layout)
 
-    def set_column_widths(self, table: Table, widths: List):
+    def set_column_widths(self, table: Table, widths: List) -> None:
         """
         widths: list of Cm/Inches/Emu values, one per column.
         Must set width on the table.columns AND on every cell in each column,
         or Word will ignore it.
         """
         self.set_fixed_layout(table)
-
         for col_idx, width in enumerate(widths):
             table.columns[col_idx].width = width
             for row in table.rows:
                 row.cells[col_idx].width = width
 
-    def insert_grid(self, question: Question):
+    def insert_grid(self, question: Question) -> None:
+        """
+        Render a matrix/table question (one row per child sub-question, one
+        column per answer option) as a docx table. The body cells show a
+        plain numbered scale (1, 2, 3, ...) repeated in every row, as a
+        print-friendly stand-in for the pick-one-per-row control.
+        """
+        if not question.children or not question.answers:
+            raise ValueError(
+                f"insert_grid requires both children (rows) and answers (columns); "
+                f"question {question.id} has children={bool(question.children)}, "
+                f"answers={bool(question.answers)}"
+            )
+
         x, y = len(question.children), len(question.answers)
         table = self.doc.add_table(rows=x + 1, cols=y + 1)
 
@@ -442,43 +450,57 @@ class ExtendedDocument:
             self.add_styled_html_cell(child.title, cell)
 
         # column widths: first column = 2 units, rest = 1 unit each
-        total_width = Pt(432)
+        total_width = Pt(432)  # ~6in of usable width on a Letter/A4 page with 1in margins
         unit = int(total_width / (y + 2))
         widths = [unit * 2] + [unit] * y
         self.set_column_widths(table, widths)
 
-        # values
-        values = [str(i) for i in range(1, y+1)]
-        for row_i in range(1, x+1):
+        # body cells: repeat the 1..y scale marker in every row
+        values = [str(i) for i in range(1, y + 1)]
+        for row_i in range(1, x + 1):
             row = table.rows[row_i].cells
             for cell, value in zip(row[1:], values):
                 self.add_styled_html_cell(value, cell)
 
-    def verbose_logic(self, template: str, logics: List[Display | DisplayAnswers | Jump], sep: str=".\n") -> str:
+    def verbose_logics(
+            self,
+            logics: List[Display | DisplayAnswers | Jump],
+            sep: str = ".\n",
+            **kwargs
+    ) -> str:
+        """
+        Render a list of logic rules as ``"{template}, если {condition}"``
+        sentences joined by their join-condition word (И/ИЛИ), e.g.
+        ``"Вопрос будет показан, если A ИЛИ Вопрос будет показан, если B"``.
+
+        NOTE: `Jump` is accepted by the type hint, but `Jump.human_display()`
+        (inherited from Logic, unmodified) currently raises `KeyError` -
+        its `_str_template` placeholders don't match what human_display()
+        fills in (see logic.py). Don't pass real Jump instances here until
+        that's fixed.
+        """
+
         result = []
-        for d in logics:
-            result.append(f"{template}, если {d.human_display()}")
-            result.append(JOIN_CONDITION_TO_STR.get(d.join_condition_id))
+        for rule in logics:
+            result.append(rule.human_readable())
+            result.append(JOIN_CONDITION_TO_STR.get(rule.join_condition_id))
 
-        full_support = sep.join(result[:-1])  # drop last join condition
+        return sep.join(result[:-1])  # drop the trailing join condition
 
-        return full_support
+    def process_displays(self, displays: List[Display]) -> None:
+        txt = self.verbose_logics(logics=displays)
+        self.doc.add_paragraph(txt, style=SUPPORT_STYLE_NAME)
 
+    def process_jumps(self, jumps: List[Jump]) -> None:
+        txt = self.verbose_logics(logics=jumps)
+        self.doc.add_paragraph(txt, style=SUPPORT_STYLE_NAME)
 
-
-    def process_displays(self, displays: List[Display]):
-        txt = self.verbose_logic(logics=displays, template="Вопрос будет показан")
-        p = self.doc.add_paragraph(txt, style=SUPPORT_STYLE_NAME)
-
-    def process_display_answers(self, display_answers: List[DisplayAnswers]):
-        txt = self.verbose_logic(logics=display_answers, template="Ответ будет показан", sep=' ')
-        return txt
-
-
-
+    def process_display_answers(self, display_answers: List[DisplayAnswers]) -> str:
+        return self.verbose_logics(logics=display_answers, sep=' ')
 
 
 def export_docx(poll: Poll, file_path: str) -> None:
+    """Render ``poll`` as a formatted .docx spec document and save it to ``file_path``."""
     ext_document = ExtendedDocument()
     document = ext_document.doc
 
@@ -494,28 +516,27 @@ def export_docx(poll: Poll, file_path: str) -> None:
     ext_document.set_description(poll.description)
 
     for block in poll.blocks:
-
         ext_document.process_block(block=block)
 
         for question in block.questions:
-
             ext_document.process_question(question=question)
+
+            # logics --------------------------------------------------------
             if question.displays:
                 ext_document.process_displays(question.displays)
+            if question.jumps:
+                ext_document.process_jumps(question.jumps)
 
-            # for jump in question.jumps:
-            #     ext_document.process_jump(jump, question_mapper=question_mapper, answer_mapper=answer_mapper)
 
             # add answers if needed
             match question.type_id:
                 case AnswerTypes.info_material:
                     pass
-                case  AnswerTypes.open_question | AnswerTypes.email_request:
-                    table = document.add_table(rows=1, cols=1)
-                    set_table_borders(table)
+                case AnswerTypes.open_question | AnswerTypes.email_request:
+                    ext_document.add_input_cell()
                 case AnswerTypes.single_answer_per_row | AnswerTypes.multiple_choice_per_row:
                     ext_document.insert_grid(question)
                 case _:
-                    ext_document.process_answers(answers=question.answers)
+                    ext_document.process_answers(answers=question.answers or [])
 
     document.save(file_path)
