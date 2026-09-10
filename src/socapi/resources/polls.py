@@ -209,7 +209,7 @@ class Poll(BaseModel):
             order += 1
         return self
 
-    def formats_to_polars_schema(variable_formats: dict[str, str]) -> dict:
+    def formats_to_polars_schema(self, variable_formats: dict[str, str]) -> dict:
         """
         variable_formats — это то же самое, что meta.variable_formats
         (например {"q0001_1": "F8.2", "q0007_1": "A12000", ...}).
