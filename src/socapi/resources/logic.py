@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from .polls import Poll
 from datetime import datetime
 from enum import IntEnum, StrEnum
-from pydantic import BaseModel, Field, ConfigDict, model_validator, PrivateAttr
+from pydantic import BaseModel, Field, ConfigDict, model_validator, PrivateAttr, computed_field
 
 
 class Comparator(IntEnum):
@@ -71,6 +71,12 @@ class InternalCondition(StrEnum):
     AND = "AND"
 
 
+class TargetType(StrEnum):
+    page = "на страницу "
+    question = "на вопрос "
+    block = "на блок "
+
+
 class Logic(BaseModel):
     """Base shape shared by all logic rule types (jumps, question/answer display)."""
     id: int
@@ -93,20 +99,17 @@ class Logic(BaseModel):
 
     _poll: Optional[Poll] = PrivateAttr(default=None)
 
-    _str_template: str = PrivateAttr(default="в вопросе {reference_question_order} {comparator_reference}.")
+    _action_template: str = PrivateAttr(default="Логика срабатывает, если ")
+    _condition_template: str = PrivateAttr(default="в вопросе {reference_question_order} {comparator_reference}")
 
-    def human_display(self, show_join: bool = True) -> str:
+    def human_condition(self) -> str:
         """
         Render this rule as a human-readable (Russian) sentence.
 
-        :param show_join: currently has no effect - the base template
-            doesn't include a join-condition placeholder, so the computed
-            join text is discarded. Kept for API-compatibility with the
-            eventual intended behavior; not yet implemented.
         """
         if self._poll is None:
             raise RuntimeError(
-                f"{type(self).__name__}._poll is not set - human_display() needs the "
+                f"{type(self).__name__}._poll is not set - human_condition() needs the "
                 "owning Poll to look up the reference question."
             )
 
@@ -137,11 +140,14 @@ class Logic(BaseModel):
             self.comparator_id, f"<no template for {self.comparator_id.name}>"
         )
 
-        return self._str_template.format(
+        return self._condition_template.format(
             reference_question_order=reference_question.poll_order,
             comparator_reference=comparator_template.format(reference_answers=reference_answer),
             join_condition=JOIN_CONDITION_TO_STR.get(self.join_condition_id),
         )
+
+    def human_readable(self) -> str:
+        return self._action_template + self.human_condition()
 
 
 class Jump(Logic):
@@ -153,11 +159,9 @@ class Jump(Logic):
     target_question_id: Optional[int] = None
     target_page_id: Optional[int] = None
 
-    _str_template: str = PrivateAttr(default="Если {conditions} переход на {target_type} {target}.") # TODO
+    _target_type: str = PrivateAttr()
 
-    def to_str(self) -> str:
-        """Render this jump as a human-readable sentence. Not implemented yet."""
-        raise NotImplementedError
+    _action_template = "Переход на {target_type} {target}, если "
 
     @model_validator(mode="before")
     @classmethod
@@ -178,6 +182,33 @@ class Jump(Logic):
         return data
 
 
+    @computed_field
+    @property
+    def _target(self) -> str:
+        match self._target_type:
+            case TargetType.block:
+                return self._poll.get_block_by_id(self.target_block_id).title
+            case TargetType.question:
+                return str(self._poll.get_question_by_id(self.target_question_id).poll_order)
+            case TargetType.page:
+                return self._poll.get_page_by_id(self.target_page_id).name
+
+    @model_validator(mode="after")
+    def set_targets(self) -> Jump:
+        if self.target_block_id is not None:
+            self._target_type = TargetType.block
+        elif self.target_question_id is not None:
+            self._target_type = TargetType.question
+        elif self.target_page_id is not None:
+            self._target_type = TargetType.page
+
+    def human_readable(self) -> str:
+        return self._action_template.format(
+            target_type=self._target_type,
+            target=self._target
+        ) + self.human_condition()
+
+
 class Display(Logic):
     """A display/visibility rule: if its condition holds, a target block/question/page is shown."""
     block_id: Optional[int] = None
@@ -187,14 +218,14 @@ class Display(Logic):
     target_question_id: Optional[int] = None
     target_page_id: Optional[int] = None
 
-    # TODO: Display doesn't yet have its own human_display() override /
-    # _str_template - it currently just inherits Logic's, which is worded
-    # for jump-style rules ("in question X ...") rather than display rules.
+    _action_template = "Вопрос будет показан, если "
 
 
 class DisplayAnswers(Logic):
     """A display/visibility rule scoped to a single answer option rather than a whole question."""
     answer_id: int
+
+    _action_template = "Ответ будет показан, если "
 
 
 class GetLogicPayload(BaseModel):
