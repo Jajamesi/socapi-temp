@@ -4,6 +4,10 @@ import dotenv
 dotenv.load_dotenv()
 import os
 from typing import List
+import ambers as am
+import json
+import polars as pl
+from io import BytesIO
 
 import socapi
 from socapi.resources import polls, blocks, questions, logic
@@ -129,3 +133,95 @@ async def test_export_docx(mocker):
     async with (socapi.ParserClient(login=login, password=password, host="online-sociology.ru") as client):
         poll = await client.poll.get_poll_structure(poll_id=test_poll) # rkz poll with complex logics
     poll.to_docx(f"./export_{test_poll}.docx")
+
+@pytest.mark.asyncio
+async def test_get_metadata(mocker):
+    async with (socapi.ParserClient(login=login, password=password, host="online-sociology.ru") as client):
+        result = await client.poll.get_poll_structure(poll_id=test_poll)
+
+        metadata = result.spss_metadata
+
+        assert isinstance(metadata, am.SpssMetadata)
+
+@pytest.mark.asyncio
+async def test_formats_to_polars_schema(mocker):
+    async with (socapi.ParserClient(login=login, password=password, host="online-sociology.ru") as client):
+        result = await client.poll.get_poll_structure(poll_id=test_poll)
+
+        metadata = result.spss_metadata
+        schema = result.formats_to_polars_schema(metadata.variable_formats)
+
+        assert isinstance(schema, dict)
+        assert schema
+
+def metadata_to_dict(metadata):
+    return {
+        "variable_labels": metadata.variable_labels,
+        "variable_value_labels": metadata.variable_value_labels,
+        "variable_formats": metadata.variable_formats,
+        "variable_measures": metadata.variable_measures,
+        "variable_alignments": metadata.variable_alignments,
+        "variable_display_widths": metadata.variable_display_widths,
+    }
+
+@pytest.mark.asyncio
+async def test_spss_metadata(mocker):
+    async with socapi.ParserClient(
+        login=login,
+        password=password,
+        host="online-sociology.ru",
+    ) as client:
+        poll = await client.poll.get_poll_structure(poll_id=test_poll)
+
+    actual = json.loads(json.dumps(metadata_to_dict(poll.spss_metadata)))
+
+    with open("./tests/fixtures/spss_metadata.json", encoding="utf-8") as f:
+        expected = json.load(f)
+
+    print(actual)
+    print(expected)
+
+    assert actual == expected
+
+@pytest.mark.asyncio
+async def test_formats_to_polars_schema(mocker):
+    async with socapi.ParserClient(
+        login=login,
+        password=password,
+        host="online-sociology.ru",
+    ) as client:
+        poll = await client.poll.get_poll_structure(poll_id=test_poll)
+
+    metadata = poll.spss_metadata
+    schema = poll.formats_to_polars_schema(metadata.variable_formats)
+
+    actual = {name: str(dtype) for name, dtype in schema.items()}
+
+    with open("./tests/fixtures/polars_schema.json", encoding="utf-8") as f:
+        expected = json.load(f)
+
+    assert actual == expected
+
+@pytest.mark.asyncio
+async def test_write_sav(tmp_path):
+    async with socapi.ParserClient(
+        login=login,
+        password=password,
+        host="online-sociology.ru",
+    ) as client:
+        poll = await client.poll.get_poll_structure(poll_id=test_poll)
+
+    metadata = poll.spss_metadata
+    schema = poll.formats_to_polars_schema(metadata.variable_formats)
+
+    async with (socapi.ParserClient(login=login, password=password, host="online-sociology.ru") as client):
+        csv = await client.poll.download_polls(poll_ids=test_poll)
+
+    csv_bytes = next(iter(csv.values()))
+
+    df = pl.read_csv(BytesIO(csv_bytes), encoding="utf8", decimal_comma=True, schema_overrides=schema)
+
+    output_file = tmp_path / "test.sav"
+
+    am.write_sav(df, output_file, meta=metadata)
+

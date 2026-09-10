@@ -16,6 +16,8 @@ from .blocks import Block
 from .sources import Source
 from .questions import Question, ChildQuestion
 from .. import io
+from dataclasses import dataclass, field
+import ambers as am
 
 
 class BackgroundColor(StrEnum):
@@ -206,6 +208,221 @@ class Poll(BaseModel):
                 child._poll_order = order + j / 10
             order += 1
         return self
+
+    def formats_to_polars_schema(self, variable_formats: dict[str, str]) -> dict:
+        """
+        variable_formats — это то же самое, что meta.variable_formats
+        (например {"q0001_1": "F8.2", "q0007_1": "A12000", ...}).
+
+        Правило: тип SPSS-переменной целиком определяется первой буквой формата.
+          A...  -> текст   -> pl.Utf8
+          F...  -> число   -> pl.Float64
+
+        Везде Float64, а не Int64 — потому что decimal_comma=True и часть F-колонок
+        (слайдеры, ranking) может содержать нецелые значения; смешивать Int/Float
+        по количеству знаков после точки в формате (F8.0 vs F8.2) смысла нет —
+        это тот же csv и тот же паттерн ошибки, только для другой колонки.
+        """
+        import polars as pl
+
+        return {
+            name: (pl.Utf8 if fmt.startswith("A") else pl.Float64)
+            for name, fmt in variable_formats.items()
+        }
+
+    @property
+    def spss_metadata(self):
+
+        NOT_SELECTED = "Не выбран"
+
+        NUMERIC = {"format_": "F8.2", "alignment": "right", "width": 8}
+        TEXT = {"format_": "A12000", "alignment": "left", "width": 40}
+
+        TECHNICAL_VARIABLES = {
+            "CollectorNM": {"label": "CollectorNM", "format": "A40", "measure": "nominal", "alignment": "left",
+                            "width": 40},
+            "respondent_id": {"label": "respondent_id", "format": "A40", "measure": "nominal", "alignment": "left",
+                              "width": 40},
+            "collector_id": {"label": "collector_id", "format": "F4.0", "measure": "nominal", "alignment": "right",
+                             "width": 8},
+            "date_created": {"label": "date_created", "format": "A40", "measure": "nominal", "alignment": "left",
+                             "width": 40},
+            "date_modified": {"label": "date_modified", "format": "A40", "measure": "nominal", "alignment": "left",
+                              "width": 40},
+            "survey_time": {"label": "survey_time", "format": "A40", "measure": "nominal", "alignment": "left",
+                            "width": 40},
+            "ip_address": {"label": "ip_address", "format": "A40", "measure": "nominal", "alignment": "left",
+                           "width": 40},
+            "domain_id": {"label": "domain_id", "format": "F8.0", "measure": "nominal", "alignment": "right",
+                          "width": 8},
+            "language_id": {"label": "language_id", "format": "F8.0", "measure": "nominal", "alignment": "right",
+                            "width": 8},
+        }
+
+        @dataclass
+        class MetadataBuilder:
+            """Копит переменные по мере обхода вопросов, в конце собирает SpssMetadata."""
+
+            labels: dict = field(default_factory=dict)
+            value_labels: dict = field(default_factory=dict)
+            formats: dict = field(default_factory=dict)
+            measures: dict = field(default_factory=dict)
+            alignments: dict = field(default_factory=dict)
+            widths: dict = field(default_factory=dict)
+
+            def add(self, name, label, *, measure, format_, alignment, width, value_labels=None):
+                self.labels[name] = label
+                self.formats[name] = format_
+                self.measures[name] = measure
+                self.alignments[name] = alignment
+                self.widths[name] = width
+                if value_labels is not None:
+                    self.value_labels[name] = value_labels
+
+            def build(self):
+                return am.SpssMetadata(
+                    variable_labels=self.labels,
+                    variable_value_labels=self.value_labels,
+                    variable_formats=self.formats,
+                    variable_measures=self.measures,
+                    variable_alignments=self.alignments,
+                    variable_display_widths=self.widths,
+                )
+
+        def _by_order(items):
+            return sorted(items, key=lambda i: i.order)
+
+        def _full_value_labels(question) -> dict[float, str]:
+            """0 = «не выбран», дальше — все ответы вопроса по порядку."""
+            labels = {0.0: NOT_SELECTED}
+            labels.update({float(a.order): a.human_title for a in question.answers if a.human_title})
+            return labels
+
+        def _binary_value_labels(answer) -> dict[float, str]:
+            """0/1 для одного конкретного варианта ответа (мультивыбор)."""
+            return {0.0: NOT_SELECTED, 1.0: answer.human_title}
+
+        # ---------------------------------------------------------------------------
+        # Обработчики по type_id — каждый превращает один Question в одну или
+        # несколько переменных.
+        # ---------------------------------------------------------------------------
+
+        def _add_single(builder, qname, question):
+            """single_answer(1) / dropdown(2) / slider(9) / info_material(11):
+            один вопрос — одна переменная."""
+            builder.add(
+                qname, question.human_title,
+                measure=question.measure.value,
+                value_labels=_full_value_labels(question),
+                **NUMERIC,
+            )
+
+        def _add_single_choice(builder, qname, question):
+            """single_answer(1) / dropdown(2): переменная вопроса + текстовые поля
+            "другое" для ответов со свободным вводом. Один такой ответ — qname_other,
+            несколько — qname_other_1, qname_other_2, ..."""
+            _add_single(builder, qname, question)
+            other_answers = [a for a in question.answers if a.has_input]
+            if len(other_answers) == 1:
+                builder.add(f"{qname}_other", other_answers[0].human_title, measure="nominal", **TEXT)
+            else:
+                for i, answer in enumerate(other_answers, start=1):
+                    builder.add(f"{qname}_other_{i}", answer.human_title, measure="nominal", **TEXT)
+
+        def _add_ranking(builder, qname, question):
+            """ranking(8): по переменной на каждый ранжируемый вариант; подпись —
+            заголовок вопроса, значения — все варианты ответа."""
+            value_labels = _full_value_labels(question)
+            for answer in _by_order(question.answers):
+                builder.add(
+                    f"{qname}_{answer.order}", question.human_title,
+                    measure=question.measure.value, value_labels=value_labels, **NUMERIC,
+                )
+
+        def _add_single_per_row(builder, qname, question):
+            """single_answer_per_row(3): по переменной на каждую строку (child);
+            подпись — заголовок строки."""
+            value_labels = _full_value_labels(question)
+            for child in _by_order(question.children):
+                builder.add(
+                    f"{qname}_{child.order}", child.human_title,
+                    measure=question.measure.value, value_labels=value_labels, **NUMERIC,
+                )
+
+        def _add_multiple_choice(builder, qname, question):
+            """multiple_choice(4): по переменной на каждый вариант; подпись —
+            заголовок вопроса, значения — 0/1 для этого варианта."""
+            for answer in _by_order(question.answers):
+                builder.add(
+                    f"{qname}_{answer.order}", question.human_title,
+                    measure=question.measure.value,
+                    value_labels=_binary_value_labels(answer), **NUMERIC,
+                )
+
+        def _add_multiple_choice_per_row(builder, qname, question):
+            """multiple_choice_per_row(10): по переменной на каждую пару строка×вариант."""
+            for child in _by_order(question.children):
+                for answer in _by_order(question.answers):
+                    builder.add(
+                        f"{qname}_{child.order}_{answer.order}", child.human_title,
+                        measure=question.measure.value,
+                        value_labels=_binary_value_labels(answer), **NUMERIC,
+                    )
+
+        def _add_open(builder, qname, question):
+            """open_question(7): по текстовой переменной на каждый под-вопрос;
+            подпись — "заголовок вопроса^заголовок под-вопроса"."""
+            for answer in _by_order(question.answers):
+                suffix = f"^{answer.human_title}" if answer.human_title else "^"
+                builder.add(
+                    f"{qname}_{answer.order}", f"{question.human_title}{suffix}",
+                    measure="nominal", **TEXT,
+                )
+
+        def _add_email(builder, qname, question):
+            """email_request(12): одна текстовая переменная с суффиксом _1."""
+            builder.add(f"{qname}_1", question.human_title, measure="nominal", **TEXT)
+
+        QUESTION_HANDLERS = {
+            1: _add_single_choice,  # single_answer
+            2: _add_single_choice,  # dropdown
+            3: _add_single_per_row,  # single_answer_per_row
+            4: _add_multiple_choice,  # multiple_choice
+            7: _add_open,  # open_question
+            8: _add_ranking,  # ranking
+            9: _add_single,  # slider
+            10: _add_multiple_choice_per_row,  # multiple_choice_per_row
+            11: _add_single,  # info_material
+            12: _add_email,  # email_request
+        }
+
+        def questions_to_metadata(questions):
+            builder = MetadataBuilder()
+
+            for name, cfg in TECHNICAL_VARIABLES.items():
+                builder.add(
+                    name, cfg["label"], measure=cfg["measure"],
+                    format_=cfg["format"], alignment=cfg["alignment"], width=cfg["width"],
+                )
+
+            # questions уже приходят от API в правильном порядке отображения — order
+            # внутри Question сбрасывается в каждом новом блоке, поэтому сортировать
+            # по нему нельзя. Номер переменной qNNNN — это просто позиция вопроса
+            # в списке, а не question.order (order остаётся значимым только внутри
+            # вопроса — для answers/children).
+            for question in questions:
+                qname = f"q{question.poll_order:04d}"
+                handler = QUESTION_HANDLERS.get(question.type_id.value)
+                if handler is None:
+                    raise ValueError(
+                        f"Неизвестный type_id={question.type_id.value} "
+                        f"для question id={question.id}"
+                    )
+                handler(builder, qname, question)
+
+            return builder.build()
+
+        return questions_to_metadata(self.questions)
 
     def _rebuild_index(self, index_name: str, collection_name: str) -> None:
         """Rebuild a private ``{item.id: item}`` lookup from a list field."""
