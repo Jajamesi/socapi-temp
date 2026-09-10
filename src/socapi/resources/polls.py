@@ -424,12 +424,6 @@ class Poll(BaseModel):
 
         return questions_to_metadata(self.questions)
 
-    def count_questions(self):
-        i = 1
-        for q in self.questions:
-            q._poll_order = i
-            i+=1
-
     def _rebuild_index(self, index_name: str, collection_name: str) -> None:
         """Rebuild a private ``{item.id: item}`` lookup from a list field."""
         setattr(
