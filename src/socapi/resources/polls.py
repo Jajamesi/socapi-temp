@@ -309,8 +309,7 @@ class Poll(BaseModel):
             for name, fmt in variable_formats.items()
         }
 
-    @property
-    def spss_metadata(self):
+    def spss_metadata(self, legacy_label = True):
 
         NOT_SELECTED = "Не выбран"
 
@@ -386,7 +385,7 @@ class Poll(BaseModel):
         # несколько переменных.
         # ---------------------------------------------------------------------------
 
-        def _add_single(builder, qname, question):
+        def _add_single(builder, qname, question, legacy_label = None):
             """single_answer(1) / dropdown(2) / slider(9) / info_material(11):
             один вопрос — одна переменная."""
             builder.add(
@@ -396,7 +395,7 @@ class Poll(BaseModel):
                 **NUMERIC,
             )
 
-        def _add_single_choice(builder, qname, question):
+        def _add_single_choice(builder, qname, question, legacy_label = None):
             """single_answer(1) / dropdown(2): переменная вопроса + текстовые поля
             "другое" для ответов со свободным вводом. Один такой ответ — qname_other,
             несколько — qname_other_1, qname_other_2, ..."""
@@ -408,47 +407,51 @@ class Poll(BaseModel):
                 for i, answer in enumerate(other_answers, start=1):
                     builder.add(f"{qname}_other_{i}", answer.human_title, measure="nominal", **TEXT)
 
-        def _add_ranking(builder, qname, question):
+        def _add_ranking(builder, qname, question, legacy_label = None):
             """ranking(8): по переменной на каждый ранжируемый вариант; подпись —
             заголовок вопроса, значения — все варианты ответа."""
             value_labels = _full_value_labels(question)
             for answer in _by_order(question.answers):
+                label = question.human_title if legacy_label else f"Вопрос: {question.human_title}\nОтвет: {answer.human_title}"
                 builder.add(
-                    f"{qname}_{answer.order}", question.human_title,
+                    f"{qname}_{answer.order}", label,
                     measure=question.measure.value, value_labels=value_labels, **NUMERIC,
                 )
 
-        def _add_single_per_row(builder, qname, question):
+        def _add_single_per_row(builder, qname, question, legacy_label = None):
             """single_answer_per_row(3): по переменной на каждую строку (child);
             подпись — заголовок строки."""
             value_labels = _full_value_labels(question)
             for child in _by_order(question.children):
+                label = child.human_title if legacy_label else f"Вопрос: {question.human_title}\nПодвопрос: {child.human_title}"
                 builder.add(
-                    f"{qname}_{child.order}", child.human_title,
+                    f"{qname}_{child.order}", label,
                     measure=question.measure.value, value_labels=value_labels, **NUMERIC,
                 )
 
-        def _add_multiple_choice(builder, qname, question):
+        def _add_multiple_choice(builder, qname, question, legacy_label = None):
             """multiple_choice(4): по переменной на каждый вариант; подпись —
             заголовок вопроса, значения — 0/1 для этого варианта."""
             for answer in _by_order(question.answers):
+                label = question.human_title if legacy_label else f"Вопрос: {question.human_title}\nПодвопрос: {answer.human_title}"
                 builder.add(
-                    f"{qname}_{answer.order}", question.human_title,
+                    f"{qname}_{answer.order}", label,
                     measure=question.measure.value,
                     value_labels=_binary_value_labels(answer), **NUMERIC,
                 )
 
-        def _add_multiple_choice_per_row(builder, qname, question):
+        def _add_multiple_choice_per_row(builder, qname, question, legacy_label = None):
             """multiple_choice_per_row(10): по переменной на каждую пару строка×вариант."""
             for child in _by_order(question.children):
                 for answer in _by_order(question.answers):
+                    label =child.human_title if legacy_label else f"Вопрос: {question.human_title}\nПодвопрос: {child.human_title}\nОтвет: {answer.human_title}"
                     builder.add(
-                        f"{qname}_{child.order}_{answer.order}", child.human_title,
+                        f"{qname}_{child.order}_{answer.order}", label,
                         measure=question.measure.value,
                         value_labels=_binary_value_labels(answer), **NUMERIC,
                     )
 
-        def _add_open(builder, qname, question):
+        def _add_open(builder, qname, question, legacy_label = None):
             """open_question(7): по текстовой переменной на каждый под-вопрос;
             подпись — "заголовок вопроса^заголовок под-вопроса"."""
             for answer in _by_order(question.answers):
@@ -458,7 +461,7 @@ class Poll(BaseModel):
                     measure="nominal", **TEXT,
                 )
 
-        def _add_email(builder, qname, question):
+        def _add_email(builder, qname, question, legacy_label = None):
             """email_request(12): одна текстовая переменная с суффиксом _1."""
             builder.add(f"{qname}_1", question.human_title, measure="nominal", **TEXT)
 
@@ -475,7 +478,7 @@ class Poll(BaseModel):
             12: _add_email,  # email_request
         }
 
-        def questions_to_metadata(questions):
+        def questions_to_metadata(questions, legacy_label):
             builder = MetadataBuilder()
 
             for name, cfg in TECHNICAL_VARIABLES.items():
@@ -497,11 +500,11 @@ class Poll(BaseModel):
                         f"Неизвестный type_id={question.type_id.value} "
                         f"для question id={question.id}"
                     )
-                handler(builder, qname, question)
+                handler(builder, qname, question, legacy_label)
 
             return builder.build()
 
-        return questions_to_metadata(self.questions)
+        return questions_to_metadata(self.questions, legacy_label)
 
 
     def to_sql_table(self, table_name: str = "my_table"):
