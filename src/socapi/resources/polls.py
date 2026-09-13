@@ -402,9 +402,11 @@ class Poll(BaseModel):
             _add_single(builder, qname, question)
             other_answers = [a for a in question.answers if a.has_input]
             if len(other_answers) == 1:
+                label = question.human_title if legacy_label else f"Вопрос: {question.human_title}\nОтвет: {other_answers[0].human_title}"
                 builder.add(f"{qname}_other", other_answers[0].human_title, measure="nominal", **TEXT)
             else:
                 for i, answer in enumerate(other_answers, start=1):
+                    label = answer.human_title if legacy_label else f"Вопрос: {question.human_title}\nОтвет: {answer.human_title}"
                     builder.add(f"{qname}_other_{i}", answer.human_title, measure="nominal", **TEXT)
 
         def _add_ranking(builder, qname, question, legacy_label = None):
