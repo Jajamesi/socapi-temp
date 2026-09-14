@@ -321,7 +321,7 @@ class Poll(BaseModel):
             """single_answer(1) / dropdown(2): переменная вопроса + текстовые поля
             "другое" для ответов со свободным вводом. Один такой ответ — qname_other,
             несколько — qname_other_1, qname_other_2, ..."""
-            _add_single(builder, qname, question)
+            _add_single(builder, qname, question, legacy_label)
             other_answers = [a for a in question.answers if a.has_input]
             if len(other_answers) == 1:
                 label = question.human_title if legacy_label else f"Вопрос: {question.human_title}\nОтвет: {other_answers[0].human_title}"
@@ -353,7 +353,7 @@ class Poll(BaseModel):
                     measure=question.measure.value, value_labels=value_labels, **NUMERIC,
                 )
 
-        def _add_multiple_choice(builder, qname, question, legacy_label = None):
+        def _add_multiple(builder, qname, question, legacy_label = None):
             """multiple_choice(4): по переменной на каждый вариант; подпись —
             заголовок вопроса, значения — 0/1 для этого варианта."""
             for answer in _by_order(question.answers):
@@ -363,6 +363,20 @@ class Poll(BaseModel):
                     measure=question.measure.value,
                     value_labels=_binary_value_labels(answer), **NUMERIC,
                 )
+
+        def _add_multiple_choice(builder, qname, question, legacy_label = None):
+            """multiple_choice(4): по переменной на каждый вариант; подпись —
+            заголовок вопроса, значения — 0/1 для этого варианта."""
+            _add_multiple(builder, qname, question, legacy_label)
+            other_answers = [a for a in question.answers if a.has_input]
+            if len(other_answers) == 1:
+                label = question.human_title if legacy_label else f"Вопрос: {question.human_title}\nОтвет: {other_answers[0].human_title}"
+                builder.add(f"{qname}_other", label, measure="nominal", **TEXT)
+            else:
+                for i, answer in enumerate(other_answers, start=1):
+                    label = answer.human_title if legacy_label else f"Вопрос: {question.human_title}\nОтвет: {answer.human_title}"
+                    builder.add(f"{qname}_other_{i}", label, measure="nominal", **TEXT)
+
 
         def _add_multiple_choice_per_row(builder, qname, question, legacy_label = None):
             """multiple_choice_per_row(10): по переменной на каждую пару строка×вариант."""
