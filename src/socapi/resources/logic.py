@@ -201,6 +201,7 @@ class Jump(Logic):
             self._target_type = TargetType.question
         elif self.target_page_id is not None:
             self._target_type = TargetType.page
+        return self
 
     def human_readable(self) -> str:
         return self._action_template.format(
