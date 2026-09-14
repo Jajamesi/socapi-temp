@@ -180,6 +180,7 @@ class ParserClient(BaseModel):
     password: Optional[str] = None
     access_token: Optional[str] = None
     max_concurrency: int = Field(default=10, description="N of concurrent requests")
+    download_timeout: int = Field(default=600, description="Single poll export timeout")
 
     # resource namespaces
     user: UserResource | None = None
@@ -581,7 +582,7 @@ class PollResource(BaseResource):
             same poll id would overwrite each other's "ready" event.
         :param poll_interval: seconds between progress polls.
         :param max_concurrent: max number of exports triggered at once.
-        :return: mapping of poll id to the downloaded CSV bytes.
+        :return: mapping of poll id to the downloaded CSV bytes. If any exception occurs, it will be returned instead.
         """
 
         if isinstance(poll_ids, int):
@@ -598,18 +599,28 @@ class PollResource(BaseResource):
         async def worker(poll_id: int) -> None:
             """Export one poll, wait for it to be ready, then download and acknowledge it."""
             async with semaphore:
-                await self._export_poll(poll_id, export_format=export_format)
-
-                event = asyncio.Event()
-                ready_events[poll_id] = event
-                in_flight.add(poll_id)
-
-                await event.wait()
-
-                uuid = ready_uuids.pop(poll_id)
-
-                results[poll_id] = await self._download_poll(uuid)
-                await self._done_poll(uuid)
+                last_exc: Exception | None = None
+                for attempt in range(1, 4):  # up to 3 tries
+                    event = asyncio.Event()
+                    ready_events[poll_id] = event
+                    try:
+                        async with asyncio.timeout(self._client.download_timeout):
+                            await self._export_poll(poll_id, export_format=export_format)
+                            in_flight.add(poll_id)
+                            await event.wait()
+                            uuid = ready_uuids.pop(poll_id)
+                            results[poll_id] = await self._download_poll(uuid)
+                            await self._done_poll(uuid)
+                        return  # success
+                    except TimeoutError as exc:
+                        # TBD if orphaned export will stale server side.
+                        # Consider _done_poll() call on staled export
+                        last_exc = exc
+                        in_flight.discard(poll_id)  # stop poller from reacting on not awaited export
+                        ready_events.pop(poll_id, None)
+                        ready_uuids.pop(poll_id, None)
+                        continue
+                raise last_exc
 
         async def poller() -> None:
             """Periodically check export status and unblock finished workers."""
@@ -630,7 +641,7 @@ class PollResource(BaseResource):
         worker_tasks = [asyncio.create_task(worker(poll_id)) for poll_id in poll_ids]
         poller_task = asyncio.create_task(poller())
 
-        await asyncio.gather(*worker_tasks)
+        await asyncio.gather(*worker_tasks, return_exceptions=True)
         poller_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await poller_task
