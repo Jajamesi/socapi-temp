@@ -463,7 +463,7 @@ class Poll(BaseModel):
         return self._page_by_id.get(item_id)
 
     def to_json_file(self, file_path: str) -> None:
-        io.to_json(self=self, file_path=file_path)
+        io.to_json(model=self, file_path=file_path)
 
     @classmethod
     def from_json_file(cls, file_path: str) -> Poll:

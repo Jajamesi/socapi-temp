@@ -8,6 +8,7 @@ import ambers as am
 import json
 import polars as pl
 from io import BytesIO
+from pathlib import Path
 
 import socapi
 from socapi.resources import polls, blocks, questions, logic
@@ -131,8 +132,8 @@ async def test_json_io(mocker):
 @pytest.mark.asyncio
 async def test_export_docx(mocker):
     async with (socapi.ParserClient(login=login, password=password, host="online-sociology.ru") as client):
-        poll = await client.poll.get_poll_structure(poll_id=test_poll) # rkz poll with complex logics
-    poll.to_docx(f"./export_{test_poll}.docx")
+        poll = await client.poll.get_poll_structure(poll_id=12857) # rkz poll with complex logics
+    poll.to_docx(f"./export_{12857}.docx")
 
 @pytest.mark.asyncio
 async def test_get_metadata(mocker):
@@ -171,15 +172,14 @@ async def test_spss_metadata(mocker):
         password=password,
         host="online-sociology.ru",
     ) as client:
-        poll = await client.poll.get_poll_structure(poll_id=test_poll)
+        poll = await client.poll.get_poll_structure(poll_id=11942) # static reference
 
     actual = json.loads(json.dumps(metadata_to_dict(poll.spss_metadata)))
 
-    with open("./tests/fixtures/spss_metadata.json", encoding="utf-8") as f:
-        expected = json.load(f)
+    expected_path = Path(__file__).resolve().parent / "fixtures/spss_metadata.json"
 
-    print(actual)
-    print(expected)
+    with open(expected_path, encoding="utf-8") as f:
+        expected = json.load(f)
 
     assert actual == expected
 
@@ -190,14 +190,16 @@ async def test_formats_to_polars_schema(mocker):
         password=password,
         host="online-sociology.ru",
     ) as client:
-        poll = await client.poll.get_poll_structure(poll_id=test_poll)
+        poll = await client.poll.get_poll_structure(poll_id=11942) # static reference
 
     metadata = poll.spss_metadata
     schema = poll.formats_to_polars_schema(metadata.variable_formats)
 
     actual = {name: str(dtype) for name, dtype in schema.items()}
 
-    with open("./tests/fixtures/polars_schema.json", encoding="utf-8") as f:
+    expected_path = Path(__file__).resolve().parent / "fixtures/polars_schema.json"
+
+    with open(expected_path, encoding="utf-8") as f:
         expected = json.load(f)
 
     assert actual == expected
