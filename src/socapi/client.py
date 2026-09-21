@@ -798,6 +798,19 @@ class BlockResource(BaseResource):
         response = await self._request(request=request)
         return sorted([blocks.Block(**b) for b in response.result], key=lambda x: x.order)
 
+    async def create_block(
+            self,
+            block: blocks.Block
+    ) -> blocks.Block:
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.create_block,
+            json_=block.model_dump(include=blocks.create_poll_fields)
+        )
+        response = await self._request(request=request)
+        return blocks.Block(**response.result)
+
 
 class QuestionResource(BaseResource):
     """API area for survey questions."""
@@ -844,6 +857,17 @@ class QuestionResource(BaseResource):
             question._poll_order = i
             result.append(question)
         return result
+
+    async def create_question(self, question: questions.Question) -> questions.Question:
+        """Create question in block or in poll"""
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.create_question,
+            json_=block.model_dump(include=blocks.create_block_fields)
+        )
+        response = await self._request(request=request)
+        return blocks.Block(**response.result)
 
 
 class CounterResource(BaseResource):

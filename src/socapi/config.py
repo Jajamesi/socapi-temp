@@ -14,7 +14,10 @@ class Endpoint(StrEnum):
     user_get = "/api/user/get"
     page_get = "/api/page/getall"
     poll_header_get = "/api/poll/get"
+
     blocks_by_poll_get = "/api/block/getbypoll"
+    create_block = "/api/block/create"
+
     questions_by_block_get = "/api/question/getbyblock"
     questions_by_poll_get = "/api/question/getbypoll"
     export_poll = "	/api/poll/stat/export"

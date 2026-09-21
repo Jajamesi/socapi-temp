@@ -54,3 +54,12 @@ class GetBlocksPayload(BaseModel):
 
     poll_id: int = Field(..., ge=1)
     includes: list[BlockInclude] = Field(default_factory=lambda: list(ALL_BLOCK_INCLUDES))
+
+
+create_block_fields = {
+    "description",
+    "name",
+    "order",
+    "poll_id",
+    "title",
+}
