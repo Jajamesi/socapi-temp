@@ -250,3 +250,22 @@ class GetPollQuestionPayload(BaseModel):
 
     poll_id: int = Field(..., ge=1)
     includes: list[QuestionInclude] = Field(default_factory=lambda: list(ALL_QUESTION_INCLUDES))
+
+
+create_question_fields = {
+    "block_id",
+    "children",
+    "children_randomized",
+    "display_labels",
+    "is_panel",
+    "max_answer",
+    "measure",
+    "min_answer",
+    "optional",
+    "order",
+    "randomized",
+    "status_id",
+    "title",
+    "transpose",
+    "type_id"
+}

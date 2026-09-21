@@ -806,7 +806,7 @@ class BlockResource(BaseResource):
             method="POST",
             host=self._client._constructor.admin_url,
             endpoint=config.Endpoint.create_block,
-            json_=block.model_dump(include=blocks.create_poll_fields)
+            json_=block.model_dump(include=blocks.create_block_fields)
         )
         response = await self._request(request=request)
         return blocks.Block(**response.result)
@@ -864,10 +864,10 @@ class QuestionResource(BaseResource):
             method="POST",
             host=self._client._constructor.admin_url,
             endpoint=config.Endpoint.create_question,
-            json_=block.model_dump(include=blocks.create_block_fields)
+            json_=question.model_dump(include=questions.create_question_fields)
         )
         response = await self._request(request=request)
-        return blocks.Block(**response.result)
+        return questions.Question(**response.result)
 
 
 class CounterResource(BaseResource):

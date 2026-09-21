@@ -20,6 +20,8 @@ class Endpoint(StrEnum):
 
     questions_by_block_get = "/api/question/getbyblock"
     questions_by_poll_get = "/api/question/getbypoll"
+    create_question = "api/question/create"
+
     export_poll = "	/api/poll/stat/export"
     progress = "/api/poll/stat/export/progress"
     download_poll = "/api/poll/stat/export/progress/download"
