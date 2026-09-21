@@ -38,7 +38,7 @@ class Page(BaseModel):
     # {1, 2, 3} (validated by enum membership), so it can't reject anything
     # membership doesn't already reject - kept only because it's harmless.
     type_id: PageType = Field(..., ge=1)
-    poll_id: int = Field(..., ge=1)
+    poll_id: int = Field(..., ge=0)
 
 
 class GetPagesPayload(BaseModel):
