@@ -117,6 +117,7 @@ class Poll(BaseModel):
     # None so a future non-null value doesn't fail validation outright.
     logic_panel: Any = None  # what's this?
     language_id: int = 1  # Russian
+    domain_id: int = 1
 
     # TODO: no `user` field yet - add `user: Optional[User] = None` here
     # once resources/user.py's User model is wired into this package.
@@ -581,3 +582,23 @@ class ProgressStatus(BaseModel):
     jwt_uuid: UUID
     params: ExportPayload
     status: str
+
+
+class UpdatePollPayload(BaseModel):
+    id: int
+    background: Optional[BackgroundColor] = None
+    can_cameback: Optional[bool] = None
+    description: Optional[str] = None
+    domain_id: Optional[int] = None
+    field_date: Optional[datetime] = None
+    is_multiple: Optional[bool] = None
+    language_id: Optional[int] = None
+    meta: Optional[list[int]] = None
+    name: Optional[str] = None
+    notify_flag: Optional[bool] = None
+    poll_responsible: Optional[int] = None
+    source_id: Optional[str] = None
+    state_id: Optional[int] = None
+    status_id: Optional[PollStatus] = None
+    title: Optional[str] = None
+    type_id: Optional[PollType] = None

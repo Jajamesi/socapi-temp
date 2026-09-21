@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import aiohttp
 from dataclasses import dataclass
+
+from aiohttp import payload
 from pydantic import BaseModel, PrivateAttr, computed_field, model_validator, Field, HttpUrl, ConfigDict, validate_call
 import functools
 from typing import List, Optional, Literal, Union, Any, Mapping, Dict, Callable, ParamSpec, TypeVar, Awaitable
@@ -694,6 +696,74 @@ class PollResource(BaseResource):
             json_=payload.model_dump()
         )
         await self._request(request=request)
+
+    async def _update_poll(
+            self,
+            poll_id: int,
+            background: Optional[polls.BackgroundColor] = None,
+            can_cameback: Optional[bool] = None,
+            description: Optional[str] = None,
+            domain_id: Optional[int] = None,
+            field_date: Optional[datetime] = None,
+            is_multiple: Optional[bool] = None,
+            language_id: Optional[int] = None,
+            meta: Optional[list[int]] = None,
+            name: Optional[str] = None,
+            notify_flag: Optional[bool] = None,
+            poll_responsible: Optional[int] = None,
+            source_id: Optional[str] = None,
+            state_id: Optional[int] = None,
+            status_id: Optional[polls.PollStatus] = None,
+            title: Optional[str] = None,
+            type_id: Optional[polls.PollType] = None,
+    ) -> polls.Poll:
+        """
+        Update the specified fields of a poll.
+
+        Only arguments explicitly provided with a non-None value are included
+        in the update payload. The ``poll_id`` identifies the poll to update.
+        """
+
+        payload = polls.UpdatePollPayload(
+            id=poll_id,
+            background=background,
+            can_cameback=can_cameback,
+            description=description,
+            domain_id=domain_id,
+            field_date=field_date,
+            is_multiple=is_multiple,
+            language_id=language_id,
+            meta=meta,
+            name=name,
+            notify_flag=notify_flag,
+            poll_responsible=poll_responsible,
+            source_id=source_id,
+            state_id=state_id,
+            status_id=status_id,
+            title=title,
+            type_id=type_id,
+        )
+
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.update_poll,
+            json_=payload.model_dump(exclude_none=True),
+        )
+
+        result = await self._request(request=request)
+        return polls.Poll(**result.result)
+
+
+    async def change_poll_status(
+            self,
+            poll_id: int,
+            status: polls.PollStatus | Literal["active", "closed", "published", "deleted"]
+    ) -> polls.Poll:
+        """Change Poll publication status."""
+        if isinstance(status, str):
+            status = polls.PollStatus[status.upper()]
+        return await self._update_poll(poll_id=poll_id, status_id=status)
 
 
 class BlockResource(BaseResource):

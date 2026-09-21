@@ -31,6 +31,8 @@ class Endpoint(StrEnum):
     duplicate_poll = "api/poll/duplicate"
     update_meta = "/api/poll/update/meta"
 
+    update_poll = "/api/poll/update"
+
     create_personal_links = "/api/poll/source/links"
 
 
