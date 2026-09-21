@@ -28,6 +28,9 @@ class Endpoint(StrEnum):
     counters_get = "/api/counter/list"
     sources_get = "/api/source/list"
 
+    duplicate_poll = "api/poll/duplicate"
+    update_meta = "/api/poll/update/meta"
+
 
 ConstructorHost = Literal[
     "online-sociology.ru",

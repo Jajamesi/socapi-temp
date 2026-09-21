@@ -648,6 +648,42 @@ class PollResource(BaseResource):
 
         return results
 
+    async def update_meta(self, poll_id: int, meta: List[int]) -> polls.Poll:
+        """Modify poll access level."""
+        payload = polls.UpdateMeta(id=poll_id, meta=meta)
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.update_meta,
+            json_=payload.model_dump(mode='json')
+        )
+        response = await self._request(request=request)
+        return polls.Poll(**response.result)
+
+    async def duplicate(self, poll_id: int, with_counters: bool = True, update_meta: bool = True) -> polls.Poll:
+        """Duplicate poll using internall API. Returns Poll instance. Uses follow-up meta update request."""
+        payload = polls.DuplicatePollPayload(id=poll_id, with_counters=with_counters)
+
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.duplicate_poll,
+            json_=payload.model_dump()
+        )
+        # get parent poll data and duplicate concurrent
+        parent_poll, dup_response = await asyncio.gather(
+            self.get_poll_head(poll_id=poll_id),
+            self._request(request=request)
+        )
+
+        child_poll = polls.Poll(**dup_response.result)
+
+        if update_meta:
+            upd_poll = await self.update_meta(poll_id=child_poll.id, meta=parent_poll.meta)
+            return upd_poll
+
+        return child_poll
+
 
 class BlockResource(BaseResource):
     """API area for survey blocks (groups of questions)."""

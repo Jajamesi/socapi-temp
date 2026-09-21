@@ -480,6 +480,15 @@ class GetPollHeaderPayload(BaseModel):
     id: int = Field(..., ge=1)
 
 
+class DuplicatePollPayload(BaseModel):
+    id: int = Field(..., ge=1)
+    with_counters: bool = Field(default=False)
+
+
+class UpdateMeta(BaseModel):
+    id: int = Field(..., ge=1)
+    meta: List[int]
+
 class GetPollListPayload(BaseModel):
     """
     Request body for listing/searching polls.
