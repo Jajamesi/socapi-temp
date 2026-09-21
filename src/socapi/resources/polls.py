@@ -483,6 +483,9 @@ class DuplicatePollPayload(BaseModel):
     id: int = Field(..., ge=1)
     with_counters: bool = Field(default=False)
 
+class CreatePersonalLinks(BaseModel):
+    link_count: int = Field(..., ge=1, le=5000)
+    poll_id: int = Field(..., ge=1)
 
 class UpdateMeta(BaseModel):
     id: int = Field(..., ge=1)

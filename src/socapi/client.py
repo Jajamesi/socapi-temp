@@ -684,6 +684,17 @@ class PollResource(BaseResource):
 
         return child_poll
 
+    async def create_personal_links(self, poll_id: int, link_count: int = Field(..., ge=1, le=5000)) -> None:
+        """Create additional invitation links."""
+        payload = polls.CreatePersonalLinks(link_count=link_count, poll_id=poll_id)
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.create_personal_links,
+            json_=payload.model_dump()
+        )
+        await self._request(request=request)
+
 
 class BlockResource(BaseResource):
     """API area for survey blocks (groups of questions)."""
