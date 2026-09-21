@@ -766,6 +766,18 @@ class PollResource(BaseResource):
         return await self._update_poll(poll_id=poll_id, status_id=status)
 
 
+    async def create_poll(self, poll: polls.Poll) -> polls.Poll:
+        """Change Poll template"""
+        request = Request(
+                    method="POST",
+                    host=self._client._constructor.admin_url,
+                    endpoint=config.Endpoint.create_poll,
+                    json_=poll.model_dump(include=polls.create_poll_fields)
+                )
+        result = await self._request(request=request)
+        return polls.Poll(**result.result)
+
+
 class BlockResource(BaseResource):
     """API area for survey blocks (groups of questions)."""
 

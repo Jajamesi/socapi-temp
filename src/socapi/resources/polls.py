@@ -602,3 +602,19 @@ class UpdatePollPayload(BaseModel):
     status_id: Optional[PollStatus] = None
     title: Optional[str] = None
     type_id: Optional[PollType] = None
+
+
+create_poll_fields = {
+    "can_cameback",
+    "description",
+    "domain_id",
+    "is_multiple",
+    "language_id",
+    "meta",
+    "name",
+    "source_id",
+    "state_id",
+    "title",
+    "track_id",
+    "type_id",
+}
