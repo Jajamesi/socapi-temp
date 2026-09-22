@@ -20,7 +20,8 @@ class Endpoint(StrEnum):
 
     questions_by_block_get = "/api/question/getbyblock"
     questions_by_poll_get = "/api/question/getbypoll"
-    create_question = "api/question/create"
+    create_question = "/api/question/create"
+    create_answer = "/api/question/answer/create"
 
     export_poll = "	/api/poll/stat/export"
     progress = "/api/poll/stat/export/progress"
@@ -31,6 +32,7 @@ class Endpoint(StrEnum):
     jump_logic_get = "/api/logic/jump/getbypoll"
     display_logic_get = "/api/logic/display/getbypoll"
     counters_get = "/api/counter/list"
+    counter_create = "/api/counter/create"
     sources_get = "/api/source/list"
 
     duplicate_poll = "api/poll/duplicate"

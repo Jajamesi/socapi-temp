@@ -772,7 +772,7 @@ class PollResource(BaseResource):
                     method="POST",
                     host=self._client._constructor.admin_url,
                     endpoint=config.Endpoint.create_poll,
-                    json_=poll.model_dump(include=polls.create_poll_fields)
+                    json_=poll.dump_create_payload()
                 )
         result = await self._request(request=request)
         return polls.Poll(**result.result)
@@ -806,7 +806,7 @@ class BlockResource(BaseResource):
             method="POST",
             host=self._client._constructor.admin_url,
             endpoint=config.Endpoint.create_block,
-            json_=block.model_dump(include=blocks.create_block_fields)
+            json_=block.dump_create_payload()
         )
         response = await self._request(request=request)
         return blocks.Block(**response.result)
@@ -864,10 +864,21 @@ class QuestionResource(BaseResource):
             method="POST",
             host=self._client._constructor.admin_url,
             endpoint=config.Endpoint.create_question,
-            json_=question.model_dump(include=questions.create_question_fields)
+            json_=question.dump_create_payload()
         )
         response = await self._request(request=request)
         return questions.Question(**response.result)
+
+    async def create_answer(self, answer: questions.Answer) -> questions.Answer:
+        """Create answer for question"""
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.create_answer,
+            json_=answer.dump_create_payload()
+        )
+        response = await self._request(request=request)
+        return questions.Answer(**response.result)
 
 
 class CounterResource(BaseResource):
@@ -885,6 +896,18 @@ class CounterResource(BaseResource):
         )
         response = await self._request(request=request)
         return [counters.Counter(**c) for c in response.result]
+
+    async def create_counter(self, counter: counters.Counter) -> counters.Counter:
+        """Create counter and it's logics"""
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.counter_create,
+            json_=counter.dump_create_payload()
+        )
+        response = await self._request(request=request)
+        return counters.Counter(**response.result)
+
 
 
 class LogicResource(BaseResource):

@@ -36,6 +36,18 @@ class Block(BaseModel):
 
     _poll: Optional[Poll] = PrivateAttr(default=None)
 
+    def dump_create_payload(self):
+        """Use to filter fields in create block request"""
+        fields = {
+            "description",
+            "name",
+            "order",
+            "poll_id",
+            "title",
+        }
+
+        return self.model_dump(include=fields)
+
 
 class BlockInclude(StrEnum):
     """Fields of :class:`Block` that can be requested via ``includes``."""
@@ -56,10 +68,3 @@ class GetBlocksPayload(BaseModel):
     includes: list[BlockInclude] = Field(default_factory=lambda: list(ALL_BLOCK_INCLUDES))
 
 
-create_block_fields = {
-    "description",
-    "name",
-    "order",
-    "poll_id",
-    "title",
-}

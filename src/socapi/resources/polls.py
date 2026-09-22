@@ -472,6 +472,25 @@ class Poll(BaseModel):
     def to_docx(self, file_path: str) -> None:
         io.export_docx(poll=self, file_path=file_path)
 
+    def dump_create_payload(self):
+        """Use to filter fields in create poll request"""
+        fields = {
+            "can_cameback",
+            "description",
+            "domain_id",
+            "is_multiple",
+            "language_id",
+            "meta",
+            "name",
+            "source_id",
+            "state_id",
+            "title",
+            "track_id",
+            "type_id",
+        }
+
+        return self.model_dump(include=fields)
+
 
 class GetPollHeaderPayload(BaseModel):
     """Request body for fetching just a poll's header."""
@@ -604,17 +623,3 @@ class UpdatePollPayload(BaseModel):
     type_id: Optional[PollType] = None
 
 
-create_poll_fields = {
-    "can_cameback",
-    "description",
-    "domain_id",
-    "is_multiple",
-    "language_id",
-    "meta",
-    "name",
-    "source_id",
-    "state_id",
-    "title",
-    "track_id",
-    "type_id",
-}
