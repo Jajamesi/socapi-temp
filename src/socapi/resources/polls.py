@@ -394,8 +394,9 @@ class Poll(BaseModel):
             подпись — "заголовок вопроса^заголовок под-вопроса"."""
             for answer in _by_order(question.answers):
                 suffix = f"^{answer.human_title}" if answer.human_title else "^"
+                label = f"{question.human_title}{suffix}" if legacy_label else f"Вопрос: {question.human_title}{suffix}\nПорядок: {answer.order}"
                 builder.add(
-                    f"{qname}_{answer.order}", f"{question.human_title}{suffix}",
+                    f"{qname}_{answer.order}", label,
                     measure="nominal", **TEXT,
                 )
 
