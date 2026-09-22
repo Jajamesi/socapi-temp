@@ -214,7 +214,7 @@ class Question(ChildQuestion):
     questions) nested ``children`` sub-questions on top of the common
     :class:`ChildQuestion` schema.
     """
-    answers: Optional[List[Answer]] = None
+    answers: Optional[List[Answer]] = Field(default_factory=list)
     children: Optional[List[ChildQuestion]] = Field(default_factory=list)
 
     parent_id: int = 0  # for a child question; 0 for a top-level question
@@ -227,6 +227,9 @@ class Question(ChildQuestion):
     @field_validator("answers", mode="after")
     @classmethod
     def sort_answers(cls, v: Optional[List[Answer]]) -> Optional[List[Answer]]:
+        if v is None:
+            return list()
+
         if isinstance(v, list):
             return sorted(v, key=lambda answer: answer.order)
         return v

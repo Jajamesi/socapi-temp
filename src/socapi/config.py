@@ -31,6 +31,12 @@ class Endpoint(StrEnum):
     display_answer_logic_get = "/api/logic/display-answer/getbypoll"
     jump_logic_get = "/api/logic/jump/getbypoll"
     display_logic_get = "/api/logic/display/getbypoll"
+
+    display_answer_logic_create = "/api/logic/display-answer/addpack"
+    jump_logic_create = "/api/logic/jump/addpack"
+    display_logic_create = "/api/logic/display/addpack"
+
+
     counters_get = "/api/counter/list"
     counter_create = "/api/counter/create"
     sources_get = "/api/source/list"

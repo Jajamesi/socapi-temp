@@ -118,7 +118,7 @@ class Request(BaseModel):
     data: Mapping[str, Any] | None = None
     # Mutated in-place for pagination (see BaseResource._fetch_by_chunks),
     # hence Dict rather than the read-only Mapping used by data/params.
-    json_: Dict[str, Any] | None = None
+    json_: Dict[str, Any] | List[Dict[str, Any]] |None = None
     params: Mapping[str, Any] | None = None
 
     @computed_field
@@ -951,6 +951,36 @@ class LogicResource(BaseResource):
         )
         response = await self._request(request=request)
         return [logic.DisplayAnswers(**display) for display in response.result]
+
+    async def create_jump(self, jump: logic.Jump) -> logic.Jump:
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.jump_logic_create,
+            json_=jump.dump_create_payload()
+        )
+        response = await self._request(request=request)
+        return logic.Jump(**response.result[0])
+
+    async def create_question_display(self, question_display: logic.Display) -> logic.Display:
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.display_logic_create,
+            json_=question_display.dump_create_payload()
+        )
+        response = await self._request(request=request)
+        return logic.Display(**response.result[0])
+
+    async def create_answer_display(self, answer_display: logic.DisplayAnswers) -> logic.DisplayAnswers:
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.display_answer_logic_create,
+            json_=answer_display.dump_create_payload()
+        )
+        response = await self._request(request=request)
+        return logic.DisplayAnswers(**response.result[0])
 
 
 class SourceResource(BaseResource):
