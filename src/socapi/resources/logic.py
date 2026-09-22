@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from .polls import Poll
 from datetime import datetime
 from enum import IntEnum, StrEnum
-from pydantic import BaseModel, Field, ConfigDict, model_validator, PrivateAttr, computed_field
+from pydantic import BaseModel, Field, ConfigDict, model_validator, PrivateAttr, computed_field, field_validator
 
 
 class Comparator(IntEnum):
@@ -79,7 +79,7 @@ class TargetType(StrEnum):
 
 class Logic(BaseModel):
     """Base shape shared by all logic rule types (jumps, question/answer display)."""
-    id: int
+    id: Optional[int] = None
     poll_id: int
     reference_question_id: int
 
@@ -101,6 +101,12 @@ class Logic(BaseModel):
 
     _action_template: str = PrivateAttr(default="Логика срабатывает, если ")
     _condition_template: str = PrivateAttr(default="в вопросе {reference_question_order} {comparator_reference}")
+
+    @field_validator("reference_answer_id", mode='before')
+    def validate_reference_answer_id(cls, v: int | list[int]) -> list[int]:
+        if isinstance(v, int):
+            return [v]
+        return v
 
     def human_condition(self) -> str:
         """
@@ -209,6 +215,25 @@ class Jump(Logic):
             target=self._target
         ) + self.human_condition()
 
+    def dump_create_payload(self):
+        """Use to filter fields in create request
+        Returns LIST"""
+        fields = {
+            "comparator_id",
+            "internal_condition",
+            "join_condition_id",
+            "poll_id",
+            "question_id",
+            "reference_answer_id",
+            "reference_answer_value",
+            "reference_question_id",
+            "target_page_id",
+            "target_question_id"
+        }
+
+        return [self.model_dump(include=fields)]
+
+
 
 class Display(Logic):
     """A display/visibility rule: if its condition holds, a target block/question/page is shown."""
@@ -221,12 +246,42 @@ class Display(Logic):
 
     _action_template = "Вопрос будет показан, если "
 
+    def dump_create_payload(self):
+        """Use to filter fields in create request.
+        Returns LIST"""
+        fields = {
+            "comparator_id",
+            "internal_condition",
+            "join_condition_id",
+            "poll_id",
+            "question_id",
+            "reference_answer_id",
+            "reference_answer_value",
+            "reference_question_id",
+        }
+        return [self.model_dump(include=fields)]
+
 
 class DisplayAnswers(Logic):
     """A display/visibility rule scoped to a single answer option rather than a whole question."""
     answer_id: int
 
     _action_template = "Ответ будет показан, если "
+
+    def dump_create_payload(self):
+        """Use to filter fields in create request
+        Returns LIST"""
+        fields = {
+            "answer_id",
+            "comparator_id",
+            "internal_condition",
+            "join_condition_id",
+            "poll_id",
+            "reference_answer_id",
+            "reference_answer_value",
+            "reference_question_id",
+        }
+        return [self.model_dump(include=fields)]
 
 
 class GetLogicPayload(BaseModel):

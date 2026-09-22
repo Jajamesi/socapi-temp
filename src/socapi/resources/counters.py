@@ -91,16 +91,30 @@ class Counter(BaseModel):
     """A poll counter (quota-style tally), as returned by the API."""
     model_config = ConfigDict(extra="forbid")
 
-    id: int
+    id: Optional[int] = None
     poll_id: int
     name: str
     description: str
-    hits: int
-    order: int
+    hits: Optional[int] = None
+    order: Optional[int] = None
     quota: int
     is_disabled: bool
-    created_at: datetime
+    created_at: datetime | None = None
     deleted_at: datetime | None = None
     conditions: list[CounterCondition] | None = None
     source_ids: list[int] | None = None
     sources: list[CounterSource] | None = None
+
+    def dump_create_payload(self):
+        """Use to filter fields in create counter request"""
+        fields = {
+            "poll_id",
+            "name",
+            "description",
+            "quota",
+            "is_disabled",
+            "conditions",
+            "source_ids",
+        }
+
+        return self.model_dump(include=fields)

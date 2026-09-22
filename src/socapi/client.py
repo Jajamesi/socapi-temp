@@ -118,7 +118,7 @@ class Request(BaseModel):
     data: Mapping[str, Any] | None = None
     # Mutated in-place for pagination (see BaseResource._fetch_by_chunks),
     # hence Dict rather than the read-only Mapping used by data/params.
-    json_: Dict[str, Any] | None = None
+    json_: Dict[str, Any] | List[Dict[str, Any]] |None = None
     params: Mapping[str, Any] | None = None
 
     @computed_field
@@ -766,6 +766,18 @@ class PollResource(BaseResource):
         return await self._update_poll(poll_id=poll_id, status_id=status)
 
 
+    async def create_poll(self, poll: polls.Poll) -> polls.Poll:
+        """Change Poll template"""
+        request = Request(
+                    method="POST",
+                    host=self._client._constructor.admin_url,
+                    endpoint=config.Endpoint.create_poll,
+                    json_=poll.dump_create_payload()
+                )
+        result = await self._request(request=request)
+        return polls.Poll(**result.result)
+
+
 class BlockResource(BaseResource):
     """API area for survey blocks (groups of questions)."""
 
@@ -785,6 +797,19 @@ class BlockResource(BaseResource):
         )
         response = await self._request(request=request)
         return sorted([blocks.Block(**b) for b in response.result], key=lambda x: x.order)
+
+    async def create_block(
+            self,
+            block: blocks.Block
+    ) -> blocks.Block:
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.create_block,
+            json_=block.dump_create_payload()
+        )
+        response = await self._request(request=request)
+        return blocks.Block(**response.result)
 
 
 class QuestionResource(BaseResource):
@@ -833,6 +858,28 @@ class QuestionResource(BaseResource):
             result.append(question)
         return result
 
+    async def create_question(self, question: questions.Question) -> questions.Question:
+        """Create question in block or in poll"""
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.create_question,
+            json_=question.dump_create_payload()
+        )
+        response = await self._request(request=request)
+        return questions.Question(**response.result)
+
+    async def create_answer(self, answer: questions.Answer) -> questions.Answer:
+        """Create answer for question"""
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.create_answer,
+            json_=answer.dump_create_payload()
+        )
+        response = await self._request(request=request)
+        return questions.Answer(**response.result)
+
 
 class CounterResource(BaseResource):
     """API area for poll counters (quota-style tallies)."""
@@ -849,6 +896,18 @@ class CounterResource(BaseResource):
         )
         response = await self._request(request=request)
         return [counters.Counter(**c) for c in response.result]
+
+    async def create_counter(self, counter: counters.Counter) -> counters.Counter:
+        """Create counter and it's logics"""
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.counter_create,
+            json_=counter.dump_create_payload()
+        )
+        response = await self._request(request=request)
+        return counters.Counter(**response.result)
+
 
 
 class LogicResource(BaseResource):
@@ -892,6 +951,36 @@ class LogicResource(BaseResource):
         )
         response = await self._request(request=request)
         return [logic.DisplayAnswers(**display) for display in response.result]
+
+    async def create_jump(self, jump: logic.Jump) -> logic.Jump:
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.jump_logic_create,
+            json_=jump.dump_create_payload()
+        )
+        response = await self._request(request=request)
+        return logic.Jump(**response.result[0])
+
+    async def create_question_display(self, question_display: logic.Display) -> logic.Display:
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.display_logic_create,
+            json_=question_display.dump_create_payload()
+        )
+        response = await self._request(request=request)
+        return logic.Display(**response.result[0])
+
+    async def create_answer_display(self, answer_display: logic.DisplayAnswers) -> logic.DisplayAnswers:
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.display_answer_logic_create,
+            json_=answer_display.dump_create_payload()
+        )
+        response = await self._request(request=request)
+        return logic.DisplayAnswers(**response.result[0])
 
 
 class SourceResource(BaseResource):

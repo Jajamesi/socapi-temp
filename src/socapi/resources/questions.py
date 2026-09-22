@@ -92,6 +92,22 @@ class Answer(BaseModel):
             return []
         return [da for da in self._poll.display_answers if da.answer_id == self.id]
 
+    def dump_create_payload(self):
+        """Use to filter fields in create answer request"""
+
+        """Use to filter Answer fields in create question request"""
+        fields = {
+            "order",
+            "title",
+            "has_input",
+            "skip_randomize",
+            "exclude_answer",
+            "optional",
+            "question_id",
+            "input_validation",
+        }
+        return self.model_dump(include=fields)
+
 
 class ChildQuestion(BaseModel):
     """
@@ -126,7 +142,7 @@ class ChildQuestion(BaseModel):
     # NOTE: `init=False` only affects pydantic *dataclasses*; on a plain
     # BaseModel it is silently ignored, so `ChildQuestion(block_id=..., ...)`
     # will still work. These are populated by PollResource.get_poll_structure
-    # after the fact (see the block/question wiring TODO in client.py), not
+    # after the fact (see the block/question wiring in client.py), not
     # from the raw API payload, but the constructor won't enforce that.
     block_id: int = Field(default=0, init=False)
     children: List[ChildQuestion] = Field(default_factory=list, init=False)
@@ -170,6 +186,27 @@ class ChildQuestion(BaseModel):
             return []
         return [da for da in self._poll.display_answers if da.reference_question_id == self.id]
 
+    def dump_create_payload(self):
+        """Use to filter fields in create question request"""
+        fields = {
+            "block_id",
+            "children",
+            "children_randomized",
+            "display_labels",
+            "is_panel",
+            "max_answer",
+            "measure",
+            "min_answer",
+            "optional",
+            "order",
+            "randomized",
+            "status_id",
+            "title",
+            "transpose",
+            "type_id"
+        }
+        return self.model_dump(include=fields)
+
 
 class Question(ChildQuestion):
     """
@@ -177,7 +214,7 @@ class Question(ChildQuestion):
     questions) nested ``children`` sub-questions on top of the common
     :class:`ChildQuestion` schema.
     """
-    answers: Optional[List[Answer]] = None
+    answers: Optional[List[Answer]] = Field(default_factory=list)
     children: Optional[List[ChildQuestion]] = Field(default_factory=list)
 
     parent_id: int = 0  # for a child question; 0 for a top-level question
@@ -190,6 +227,9 @@ class Question(ChildQuestion):
     @field_validator("answers", mode="after")
     @classmethod
     def sort_answers(cls, v: Optional[List[Answer]]) -> Optional[List[Answer]]:
+        if v is None:
+            return list()
+
         if isinstance(v, list):
             return sorted(v, key=lambda answer: answer.order)
         return v
@@ -250,3 +290,5 @@ class GetPollQuestionPayload(BaseModel):
 
     poll_id: int = Field(..., ge=1)
     includes: list[QuestionInclude] = Field(default_factory=lambda: list(ALL_QUESTION_INCLUDES))
+
+
