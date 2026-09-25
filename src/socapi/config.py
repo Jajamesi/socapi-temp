@@ -53,6 +53,7 @@ class Endpoint(StrEnum):
 ConstructorHost = Literal[
     "online-sociology.ru",
     "opinion-world.com",
+    "sociology-form.com"
 ]
 
 
