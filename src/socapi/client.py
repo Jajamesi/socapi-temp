@@ -275,7 +275,12 @@ class ParserClient(BaseModel):
 
                     return  parsed
 
-                elif content_type.startswith("text/csv"):
+                elif any([
+                    content_type.startswith("text/csv"),
+                    content_type.startswith("application/x-spss-sav"),
+                    content_type.startswith("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    ]
+                ):
                     return await resp.read()
 
                 resp.raise_for_status()
