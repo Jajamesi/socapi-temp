@@ -108,6 +108,7 @@ async def test_download_poll(mocker, export_format,filter_):
     async with (socapi.ParserClient(login=login, password=password, host="online-sociology.ru") as client):
         result = await client.poll.download_polls(poll_ids=test_poll)
         assert test_poll in result.keys()
+        assert result.get(test_poll) is not None
 
 
 @pytest.mark.asyncio
