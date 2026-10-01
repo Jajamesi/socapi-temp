@@ -10,9 +10,13 @@ from docx.shared import RGBColor, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.style import WD_STYLE_TYPE
 from docx.text.paragraph import Paragraph
-from docx.table import Table
+from docx.table import Table, _Cell
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.enum.dml import MSO_COLOR_TYPE
+
+import re
+import html
 
 # NOTE: the PyPI package literally named `html4docx` (0.0.3) does NOT
 # export `HtmlToDocx` - it's an unrelated, seemingly abandoned docx-to-html
@@ -31,6 +35,7 @@ if TYPE_CHECKING:
     from .resources.blocks import Block
 from .resources.logic import DisplayAnswers, Display, Jump, JOIN_CONDITION_TO_STR
 from .resources.questions import AnswerTypes, Question, Answer
+from itertools import groupby
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -540,3 +545,157 @@ def export_docx(poll: Poll, file_path: str) -> None:
                     ext_document.process_answers(answers=question.answers or [])
 
     document.save(file_path)
+
+
+def iter_blocks(parent):
+    """Yield Paragraph and Table objects in document order."""
+    container = parent._tc if isinstance(parent, _Cell) else parent.element.body
+    for child in container.iterchildren():
+        if child.tag == qn("w:p"):
+            yield Paragraph(child, parent)
+        elif child.tag == qn("w:tbl"):
+            yield Table(child, parent)
+
+
+def iter_cells(table):
+    """Yield every real cell of a table, exactly once, row by row."""
+    for tr in table._tbl.iterchildren(qn("w:tr")):
+        for tc in tr.iterchildren(qn("w:tc")):
+            vmerge = tc.xpath("./w:tcPr/w:vMerge")
+            # vMerge without val="restart" = continuation of a cell above -> skip
+            if vmerge and vmerge[0].get(qn("w:val")) != "restart":
+                continue
+            yield _Cell(tc, table)
+
+
+def process_cell(cell, result):
+    paras, nested = [], []
+    for block in iter_blocks(cell):
+        if isinstance(block, Paragraph):
+            paras.append(paragraph_to_md(block))
+        else:
+            nested.append(block)
+    result.append("\n".join(paras))
+    for t in nested:                       # tables inside a cell
+        for c in iter_cells(t):
+            process_cell(c, result)
+
+
+def style_attr(para, attr):
+    """Look up a font attribute through the paragraph style chain."""
+    style = para.style
+    while style is not None:
+        value = getattr(style.font, attr)
+        if value is not None:
+            return value
+        style = style.base_style
+    return None
+
+
+def run_format(run, para):
+    f = run.font
+    color = None
+    if f.color is not None and f.color.type == MSO_COLOR_TYPE.RGB:
+        color = str(f.color.rgb)
+    size = f.size or style_attr(para, "size")
+    bold = f.bold if f.bold is not None else style_attr(para, "bold")
+    italic = f.italic if f.italic is not None else style_attr(para, "italic")
+    return (
+        bool(bold),
+        bool(italic),
+        bool(f.underline),
+        bool(f.strike),
+        color,
+        size.pt if size else None,
+        f.highlight_color is not None,
+    )
+
+
+def wrap(text, fmt):
+    bold, italic, underline, strike, color, size, highlight = fmt
+    if not text.strip():
+        return text
+    # keep surrounding spaces outside the markers (Markdown requires this)
+    lead = text[: len(text) - len(text.lstrip())]
+    trail = text[len(text.rstrip()):]
+    core = text.strip()
+
+    if bold and italic:
+        core = f"***{core}***"
+    elif bold:
+        core = f"**{core}**"
+    elif italic:
+        core = f"*{core}*"
+    if strike:
+        core = f"~~{core}~~"
+    if underline:
+        core = f"<u>{core}</u>"
+    if highlight:
+        core = f"<mark>{core}</mark>"
+
+    css = []
+    if color:
+        css.append(f"color:#{color}")
+    if size:
+        css.append(f"font-size:{size:g}pt")
+    if css:
+        core = f'<span style="{"; ".join(css)}">{core}</span>'
+    return lead + core + trail
+
+
+def paragraph_to_md(para):
+    # merge adjacent runs with identical formatting -> no "**a****b**"
+    runs = [(run_format(r, para), r.text) for r in para.runs]
+    parts = []
+    for fmt, group in groupby(runs, key=lambda x: x[0]):
+        parts.append(wrap("".join(t for _, t in group), fmt))
+    text = "".join(parts)
+
+    name = para.style.name if para.style is not None else ""
+    if name.startswith("Heading ") and name[8:].isdigit():
+        text = "#" * int(name[8:]) + " " + text
+    elif name == "Title":
+        text = "# " + text
+    elif "List" in name and text.strip():
+        text = "- " + text
+    return text
+
+
+def docx_to_markdown(path):
+    doc = Document(path)
+    result = []
+
+    for block in iter_blocks(doc):
+        if isinstance(block, Paragraph):
+            result.append(paragraph_to_md(block))
+        else:
+            for cell in iter_cells(block):
+                process_cell(cell, result)
+    return result
+
+
+# our own inline tags (produced by the docx converter) must not be escaped
+TAG_RE = re.compile(r"(</?(?:span|u|mark)\b[^>]*>)")
+
+
+def md_to_html(text: str) -> str:
+    # heading prefix "# ", "## " ... -> <h1>, <h2> ...
+    tag = "p"
+    m = re.match(r"^(#{1,6})\s+(.*)$", text, re.S)
+    if m:
+        tag = f"h{len(m.group(1))}"
+        text = m.group(2)
+
+    # escape &, <, > in plain text only, keep span/u/mark tags as they are
+    parts = TAG_RE.split(text)
+    parts = [p if i % 2 else html.escape(p, quote=False) for i, p in enumerate(parts)]
+    s = "".join(parts)
+
+    # markdown -> html (order matters: *** before ** before *)
+    s = re.sub(r"\*\*\*(.+?)\*\*\*", r"<strong><em>\1</em></strong>", s, flags=re.S)
+    s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s, flags=re.S)
+    s = re.sub(r"\*(.+?)\*", r"<em>\1</em>", s, flags=re.S)
+    s = re.sub(r"~~(.+?)~~", r"<s>\1</s>", s, flags=re.S)
+
+    s = s.replace("\n", "<br>")  # multi-paragraph table cells
+    return f"<{tag}>{s}</{tag}>"
