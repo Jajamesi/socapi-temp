@@ -12,7 +12,10 @@ class Endpoint(StrEnum):
     login = "/api/login"
     profile = "api/profile"
     user_get = "/api/user/get"
+
     page_get = "/api/page/getall"
+    create_page = "/api/page/add"
+
     poll_header_get = "/api/poll/get"
 
     blocks_by_poll_get = "/api/block/getbypoll"

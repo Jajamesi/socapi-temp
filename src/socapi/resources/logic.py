@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Optional, Any, TYPE_CHECKING
 
-from .questions import ChildQuestion, Question
-
 if TYPE_CHECKING:
+    # questions.py imports this module at runtime (it needs Comparator/JoinCondition
+    # for ``Question.add_display``), so the reverse import must stay lazy.
     from .polls import Poll
+    from .questions import ChildQuestion, Question
 from datetime import datetime
 from enum import IntEnum, StrEnum
 from pydantic import BaseModel, Field, ConfigDict, model_validator, PrivateAttr, computed_field, field_validator
@@ -13,39 +14,39 @@ from pydantic import BaseModel, Field, ConfigDict, model_validator, PrivateAttr,
 
 class Comparator(IntEnum):
     """How a logic rule's reference answer(s)/value is compared against a respondent's answer."""
-    IS_SELECTED = 1
-    IS_NOT_SELECTED = 2
-    IS_ANSWERED = 3
-    IS_NOT_ANSWERED = 4
+    is_selected = 1
+    is_not_selected = 2
+    is_answered = 3
+    is_not_answered = 4
 
-    CONTAINS = 5
-    EQUAL = 6
-    STARTS_WITH = 7
-    ENDS_WITH = 8
+    contains = 5
+    equal = 6
+    starts_with = 7
+    ends_with = 8
 
-    EQUAL_NUM = 9
-    LESS_THAN = 10
-    GREATER_THAN = 11
+    equal_num = 9
+    less_than = 10
+    greater_than = 11
 
-    IS_ANSWERED_TEXT = 12
-    IS_NOT_ANSWERED_TEXT = 13
+    is_answered_text = 12
+    is_not_answered_text = 13
 
 
 # Human-readable (Russian) rendering of each Comparator, for Logic.human_display().
 COMPARATOR_TEMPLATES: dict[Comparator, str] = {
-    Comparator.IS_SELECTED: "выбран ответ {reference_answers}",
-    Comparator.IS_NOT_SELECTED: "не выбран ответ {reference_answers}",
-    Comparator.IS_ANSWERED: "отвечено",
-    Comparator.IS_NOT_ANSWERED: "не отвечено",
-    Comparator.CONTAINS: "содержит {reference_answers}",
-    Comparator.EQUAL: "равнозначно {reference_answers}",
-    Comparator.STARTS_WITH: "начинается с {reference_answers}",
-    Comparator.ENDS_WITH: "заканчивается {reference_answers}",
-    Comparator.EQUAL_NUM: "равно {reference_answers}",
-    Comparator.LESS_THAN: "меньше {reference_answers}",
-    Comparator.GREATER_THAN: "больше {reference_answers}",
-    Comparator.IS_ANSWERED_TEXT: "IS_ANSWERED_TEXT {reference_answers}",  # TODO: placeholder text
-    Comparator.IS_NOT_ANSWERED_TEXT: "IS_NOT_ANSWERED_TEXT {reference_answers}",  # TODO: placeholder text
+    Comparator.is_selected: "выбран ответ {reference_answers}",
+    Comparator.is_not_selected: "не выбран ответ {reference_answers}",
+    Comparator.is_answered: "отвечено",
+    Comparator.is_not_answered: "не отвечено",
+    Comparator.contains: "содержит {reference_answers}",
+    Comparator.equal: "равнозначно {reference_answers}",
+    Comparator.starts_with: "начинается с {reference_answers}",
+    Comparator.ends_with: "заканчивается {reference_answers}",
+    Comparator.equal_num: "равно {reference_answers}",
+    Comparator.less_than: "меньше {reference_answers}",
+    Comparator.greater_than: "больше {reference_answers}",
+    Comparator.is_answered_text: "is_answered_text {reference_answers}",  # TODO: placeholder text
+    Comparator.is_not_answered_text: "is_not_answered_text {reference_answers}",  # TODO: placeholder text
 }
 
 
@@ -86,9 +87,9 @@ class Logic(BaseModel):
     comparator_id: Comparator
     join_condition_id: JoinCondition
 
-    disabled: bool
+    disabled: bool = False
 
-    internal_condition: InternalCondition
+    internal_condition: InternalCondition = InternalCondition.OR
 
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -113,6 +114,8 @@ class Logic(BaseModel):
         Render this rule as a human-readable (Russian) sentence.
 
         """
+        from .questions import ChildQuestion, Question  # lazy: avoids circular import
+
         if self._poll is None:
             raise RuntimeError(
                 f"{type(self).__name__}._poll is not set - human_condition() needs the "
