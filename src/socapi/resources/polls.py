@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, List, Any, Literal
+from typing import Optional, List, Any, Literal, Generator, overload
 from datetime import datetime
 from enum import IntEnum, StrEnum
 from pydantic import BaseModel, Field, field_validator, ConfigDict, model_validator, PrivateAttr
@@ -11,10 +11,11 @@ from ..text_worker import parse_text
 
 from .counters import Counter
 from . import logic
-from .pages import Page
+from .pages import Page, PageData, PageType
 from .blocks import Block
 from .sources import Source
 from .questions import Question, ChildQuestion
+from ..utils import is_draft_id
 from .. import io
 from dataclasses import dataclass, field
 import ambers as am
@@ -80,8 +81,8 @@ class Poll(BaseModel):
     to manually re-run that wiring later, e.g. after mutating ``self.blocks``
     in place post-construction.
     """
-    id: int
-    uuid: UUID
+    id: int | None = None
+    uuid: UUID | None = None
     name: str
     title: str = Field(default="")
     description: str = Field(default="")
@@ -128,6 +129,7 @@ class Poll(BaseModel):
     _children_by_id: dict[int, ChildQuestion] = PrivateAttr(default_factory=dict)
     _block_by_id: dict[int, Block] = PrivateAttr(default_factory=dict)
     _page_by_id: dict[int, Page] = PrivateAttr(default_factory=dict)
+    _id_generator: Generator[int, None, None] = PrivateAttr(default=None)
 
     @property
     def human_description(self) -> str:
@@ -491,6 +493,192 @@ class Poll(BaseModel):
 
         return self.model_dump(include=fields)
 
+    @classmethod
+    def decrement_id(cls):
+        i = 0
+        while True:
+            i -= 1
+            yield i
+
+    @model_validator(mode="after")
+    def child_id_generator(self) -> Poll:
+        self._id_generator = self.decrement_id()
+        return self
+
+    # ------------------------------------------------------------------
+    # Draft building: a poll created from scratch, then uploaded with
+    # ``PollResource.upload_poll``. Items get temporary negative ids so
+    # that logic can reference them before the server assigned real ones.
+    # ------------------------------------------------------------------
+
+    @property
+    def is_draft(self) -> bool:
+        """True while the poll has not been created on the server."""
+        return self.id is None
+
+    def _next_id(self) -> int:
+        """Next temporary (negative) id for a draft item."""
+        return next(self._id_generator)
+
+    def _refresh(self) -> None:
+        """Recompute question numbering and id lookups after the draft structure changed."""
+        self.count_questions()
+        self.index_questions()
+        self.index_blocks()
+        self.index_pages()
+        for question in self.questions:
+            question.index_answers()
+
+    def _attach_logic(self, rule: logic.Logic, collection: list) -> None:
+        """Give a new logic rule a temporary id, bind it to this poll and store it in ``collection``."""
+        rule.id = self._next_id()
+        rule._poll = self
+        collection.append(rule)
+
+    def add_block(self, block: Block) -> Block:
+        """Append ``block`` to the poll; its ``order`` and temporary id are assigned here."""
+        if block._poll is not None:
+            raise ValueError("This block already belongs to a poll.")
+
+        block.order = len(self.blocks) + 1
+        block.id = self._next_id()
+        block._id_generator = self._id_generator
+        block._poll = self
+
+        self.blocks.append(block)
+        self._refresh()
+        return block
+
+    def _draft_items(self) -> tuple[set[int], list[logic.Logic]]:
+        """Ids of every draft question/row/answer/block, and every logic rule."""
+        known: set[int] = {block.id for block in self.blocks}
+        for question in self.questions:
+            known.add(question.id)
+            known.update(answer.id for answer in question.answers or [])
+            known.update(child.id for child in question.children or [])
+        rules = [*self.jumps, *self.displays, *self.display_answers]
+        return known, rules
+
+    def validate_draft(self) -> None:
+        """
+        Check that every logic rule references items that exist in this
+        poll, so a broken draft fails *before* anything is sent.
+
+        Draft ids must belong to this poll; real (positive) ids are assumed
+        to be existing server items, e.g. a finish page.
+
+        :raises ValueError: listing every problem found.
+        """
+        known, rules = self._draft_items()
+
+        def bad(value: int | None) -> bool:
+            return is_draft_id(value) and value not in known
+
+        problems: list[str] = []
+        for rule in rules:
+            refs = {
+                "reference_question_id": [rule.reference_question_id],
+                "reference_answer_id": rule.reference_answer_id,
+                "question_id": [getattr(rule, "question_id", None)],
+                "answer_id": [getattr(rule, "answer_id", None)],
+                "target_question_id": [getattr(rule, "target_question_id", None)],
+            }
+            for name, values in refs.items():
+                problems.extend(
+                    f"{type(rule).__name__} {rule.id}: {name}={value} is not part of this poll"
+                    for value in values if bad(value)
+                )
+        if problems:
+            raise ValueError("Poll draft is inconsistent:\n" + "\n".join(problems))
+
+    @overload
+    def add_page(self, page: Page) -> Page:
+        ...
+
+    @overload
+    def add_page(
+            self,
+            *,
+            name: str,
+            page_type: PageType | Literal["greeting", "finish", "disqualification"],
+            title: Optional[str] = None,
+            description: Optional[str] = None,
+    ) -> Page:
+        ...
+
+    def add_page(
+            self,
+            page: Page | None = None,
+            *,
+            name: str | None = None,
+            page_type: PageType | Literal["greeting", "finish", "disqualification"] | None = None,
+            title: Optional[str] = "",
+            description: Optional[str] = "",
+    ) -> Page:
+        """
+        Добавляет страницу к опросу.
+
+        Страницу можно передать двумя способами:
+
+        1. Передать уже созданный объект ``Page``:
+           ``add_page(page)``.
+           В этом случае все необходимые данные должны быть уже заданы
+           при создании объекта ``Page``.
+
+        2. Передать аргументы для создания ``Page``:
+           ``add_page(name=..., page_type=...)``.
+           В этом случае обязательны ``name`` и ``page_type``.
+           ``title`` и ``description`` являются необязательными.
+
+        При добавлении странице автоматически назначаются ``id`` и ``poll_id``,
+        а также устанавливается связь со следующим уровнем объекта ``Poll``.
+
+        Args:
+            page: Уже созданный объект ``Page``. Если указан, аргументы
+                ``name``, ``page_type``, ``title`` и ``description`` не используются.
+
+            name: Название страницы. Обязательно, если ``page`` не передан.
+
+            page_type: Тип страницы. Обязательно, если ``page`` не передан.
+                Допустимые строковые значения: ``"greeting"``, ``"finish"``,
+                ``"disqualification"``.
+
+            title: Заголовок страницы. Используется только при создании
+                ``Page`` из аргументов.
+
+            description: Описание страницы. Используется только при создании
+                ``Page`` из аргументов.
+
+        Returns:
+            Добавленный объект ``Page``.
+
+        Raises:
+            ValueError: Если страница уже принадлежит другому опросу или
+                страница такого типа уже существует в этом опросе.
+        """
+
+        if page is None:
+            page = Page(
+                name=name,
+                data=PageData(title=title, description=description),
+                type_id=page_type,
+            )
+
+        if page._poll is not None:
+            raise ValueError("This page already belongs to a poll.")
+
+        if page.type_id in [p.type_id for p in self.pages]:
+            raise ValueError("Page of the same type already exists.")
+
+        page.id = self._next_id()
+        page.poll_id = self.id
+        page._id_generator = self._id_generator
+        page._poll = self
+
+        self.pages.append(page)
+        self.index_pages()
+        return page
+
 
 class GetPollHeaderPayload(BaseModel):
     """Request body for fetching just a poll's header."""
@@ -623,3 +811,14 @@ class UpdatePollPayload(BaseModel):
     type_id: Optional[PollType] = None
 
 
+
+
+# Block/Question/Poll reference each other by name only (blocks.py imports
+# Question/Poll under TYPE_CHECKING to avoid circular imports), so pydantic can't
+# finish building them on its own: without this, ``Poll(...)`` raises
+# "`Poll` is not fully defined" whenever it is called from inside a function
+# that doesn't have ``Question`` in its local scope.
+_NAMESPACE = {"Poll": Poll, "Block": Block, "Question": Question, "ChildQuestion": ChildQuestion}
+Question.model_rebuild(_types_namespace=_NAMESPACE)
+Block.model_rebuild(_types_namespace=_NAMESPACE)
+Poll.model_rebuild(_types_namespace=_NAMESPACE)

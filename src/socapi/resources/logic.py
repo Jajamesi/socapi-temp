@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Optional, Any, TYPE_CHECKING
 
-from .questions import ChildQuestion, Question
-
 if TYPE_CHECKING:
+    # questions.py imports this module at runtime (it needs Comparator/JoinCondition
+    # for ``Question.add_display``), so the reverse import must stay lazy.
     from .polls import Poll
+    from .questions import ChildQuestion, Question
 from datetime import datetime
 from enum import IntEnum, StrEnum
 from pydantic import BaseModel, Field, ConfigDict, model_validator, PrivateAttr, computed_field, field_validator
@@ -86,9 +87,9 @@ class Logic(BaseModel):
     comparator_id: Comparator
     join_condition_id: JoinCondition
 
-    disabled: bool
+    disabled: bool = False
 
-    internal_condition: InternalCondition
+    internal_condition: InternalCondition = InternalCondition.OR
 
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -113,6 +114,8 @@ class Logic(BaseModel):
         Render this rule as a human-readable (Russian) sentence.
 
         """
+        from .questions import ChildQuestion, Question  # lazy: avoids circular import
+
         if self._poll is None:
             raise RuntimeError(
                 f"{type(self).__name__}._poll is not set - human_condition() needs the "

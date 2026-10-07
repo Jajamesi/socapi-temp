@@ -4,17 +4,25 @@ import asyncio
 import aiohttp
 from dataclasses import dataclass
 
-from aiohttp import payload
-from pydantic import BaseModel, PrivateAttr, computed_field, model_validator, Field, HttpUrl, ConfigDict, validate_call
+from pydantic import BaseModel, PrivateAttr, computed_field, model_validator, Field, ConfigDict, validate_call
 import functools
-from typing import List, Optional, Literal, Union, Any, Mapping, Dict, Callable, ParamSpec, TypeVar, Awaitable
+from typing import List, Optional, Literal, Any, Mapping, Dict, Callable, ParamSpec, TypeVar, Awaitable, Concatenate
 from datetime import datetime, timedelta
 from urllib.parse import urljoin
 import random
 import contextlib
 from uuid import UUID
 
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
+)
+
 from . import config, exceptions
+from .utils import IdMap
 
 from .resources import user, pages, polls, blocks, questions, logic, counters, sources
 
@@ -64,6 +72,7 @@ def retry(n_attempts: int = 3, delay: float = 1):
                         await asyncio.sleep(delay * 2 ** attempt + random.uniform(0, 0.5))
                     else:
                         raise
+            return None
 
         return wrapper
 
@@ -71,8 +80,8 @@ def retry(n_attempts: int = 3, delay: float = 1):
 
 
 def re_auth(
-    func: Callable[P, Awaitable[T]],
-) -> Callable[P, Awaitable[T]]:
+    func: Callable[Concatenate["BaseResource", P], Awaitable[T]],
+) -> Callable[Concatenate["BaseResource", P], Awaitable[T]]:
     """
     Wrap a ``BaseResource`` method so it transparently (re)authenticates.
 
@@ -83,7 +92,7 @@ def re_auth(
     """
 
     @functools.wraps(func)
-    async def wrapper(self: "BaseResource", *args: P.args, **kwargs: P.kwargs) -> T:
+    async def decorator(self: "BaseResource", *args: P.args, **kwargs: P.kwargs) -> T:
         # run initial authentication if needed
         await self._client._initial_authorizing()
 
@@ -96,7 +105,7 @@ def re_auth(
             await self._client._authorize()
             return await func(self, *args, **kwargs)
 
-    return wrapper
+    return decorator
 
 
 class Request(BaseModel):
@@ -185,14 +194,14 @@ class ParserClient(BaseModel):
     download_timeout: int = Field(default=600, description="Single poll export timeout")
 
     # resource namespaces
-    user: UserResource | None = None
-    page: PageResource | None = None
-    poll: PollResource | None = None
-    block: BlockResource | None = None
-    question: QuestionResource | None = None
-    logic: LogicResource | None = None
-    counter: CounterResource | None = None
-    source: SourceResource | None = None
+    user: UserResource = None
+    page: PageResource = None
+    poll: PollResource = None
+    block: BlockResource = None
+    question: QuestionResource = None
+    logic: LogicResource = None
+    counter: CounterResource = None
+    source: SourceResource = None
 
     _session: Optional[aiohttp.ClientSession] = PrivateAttr(default=None)
     _lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
@@ -251,20 +260,26 @@ class ParserClient(BaseModel):
         :raises exceptions.*Error: for JSON responses with ``status >= 400``.
         """
 
-        kwargs = {
-            "data": request.data,
-            "json": request.json_,
-            "params": request.params,
-            "headers": request.headers
-        }
+        # kwargs = {
+        #     "data": request.data,
+        #     "json": request.json_,
+        #     "params": request.params,
+        #     "headers": request.headers
+        # }
+        #
+        # kwargs = {key: value for key, value in kwargs.items() if value is not None}
 
-        kwargs = {key: value for key, value in kwargs.items() if value is not None}
+        if self._session is None:
+            raise RuntimeError("ParserClient must be used as an async context manager")
 
         async with self._semaphore:
             async with self._session.request(
                     request.method,
                     request.path,
-                    **kwargs,
+                    data=request.data,
+                    json=request.json_,
+                    params=request.params,
+                    headers=request.headers,
             ) as resp:
                 content_type = resp.headers.get("Content-Type", "")
                 if content_type.startswith("application/json"):
@@ -299,7 +314,10 @@ class ParserClient(BaseModel):
             }
         )
 
-        response: Response = await self._request(request=request)
+        response = await self._request(request=request)
+
+        assert isinstance(response, Response)
+        assert isinstance(response.result, dict)
 
         self.access_token = response.result.get("session_token")
         self._token_expires_on = datetime.now() + timedelta(minutes=TOKEN_TTL)
@@ -439,6 +457,54 @@ class UserResource(BaseResource):
             request=request, limit=limit, process_chunk=parse_user, return_max=return_max
         )
 
+    async def get_one(
+            self,
+            created_at: Optional[user.CreatedAtFilter] = None,
+            disabled: bool | None = None,
+            name: str | None = None,
+            patronymic: str | None = None,
+            role_id: int | None = None,
+            login: str | None = None,
+            phone: int | None = None,
+            email: str | None = None,
+            meta: list[Any] | None = None,
+    ) -> user.User | None:
+        """
+        Return exactly one user.
+
+        """
+        payload = user.UserGetPayload(
+            created_at=created_at,
+            disabled=disabled,
+            name=name,
+            patronymic=patronymic,
+            role_id=role_id,
+            login=login,
+            phone=phone,
+            email=email,
+            meta=meta,
+        )
+
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.user_get,
+            json_=payload.model_dump()
+        )
+
+        def parse_user(**data) -> user.User:
+            return user.User(**data)
+
+        result = await self._fetch_by_chunks(
+            request=request, limit=1, process_chunk=parse_user, return_max=1
+        )
+
+        if len(result)==1:
+            return result[0]
+        elif len(result)==0:
+            return None
+        return None
+
 
 class PageResource(BaseResource):
     """API area for survey pages - start / finish / disqualified."""
@@ -455,6 +521,16 @@ class PageResource(BaseResource):
         )
         response = await self._request(request=request)
         return [pages.Page(**p) for p in response.result]
+
+    async def create_page(self, page: pages.Page) -> pages.Page:
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.create_page,
+            json_=page.dump_create_payload()
+        )
+        response = await self._request(request=request)
+        return pages.Page(**response.result)
 
 
 class PollResource(BaseResource):
@@ -781,6 +857,293 @@ class PollResource(BaseResource):
                 )
         result = await self._request(request=request)
         return polls.Poll(**result.result)
+
+    async def _upload_question(self, question, ids: IdMap) -> None:
+        """Create one question, its matrix rows (sent with it); register their real ids."""
+        draft_id = question.id
+        created = await self._client.question.create_question(question)
+        question.id, question.created_at = created.id, created.created_at
+        ids.register(draft_id, question.id)
+
+        # update related answers
+        for answer in question.answers:
+            answer.question_id = question.id
+
+        # matrix rows come back inside the create-question response, in order
+        created_rows = sorted(created.children or [], key=lambda c: c.order)
+        draft_rows = sorted(question.children or [], key=lambda c: c.order)
+        if len(created_rows) != len(draft_rows):
+            raise exceptions.UnknownError(
+                status=0,
+                error=f"question {question.title!r}: sent {len(draft_rows)} rows, server returned {len(created_rows)}",
+            )
+        for draft_row, created_row in zip(draft_rows, created_rows):
+            ids.register(draft_row.id, created_row.id)
+            draft_row.id, draft_row.parent_id, draft_row.block_id = created_row.id, question.id, question.block_id
+
+    async def _upload_logic(self, poll: polls.Poll, ids: IdMap, progress_callback: Callable, exc_handler: Callable) -> None:
+        """Create jumps, question displays and answer displays with every reference translated to real ids."""
+        for i, rule in enumerate(poll.displays, start=1):
+            self._remap_logic(rule, poll, ids)
+            try:
+                rule.id = (await self._client.logic.create_question_display(rule)).id
+            except Exception as e:
+                exc_handler(f"Display logic with id={rule.id} creation", e)
+            progress_callback(f"display {i} created")
+        for i, rule in enumerate(poll.jumps, start=1):
+            self._remap_logic(rule, poll, ids)
+            try:
+                rule.id = (await self._client.logic.create_jump(rule)).id
+            except Exception as e:
+                exc_handler(f"Jump logic with id={rule.id} creation", e)
+            progress_callback(f"jump {i} created")
+        for i, rule in enumerate(poll.display_answers, start=1):
+            self._remap_logic(rule, poll, ids)
+            try:
+                rule.id = (await self._client.logic.create_answer_display(rule)).id
+            except Exception as e:
+                exc_handler(f"Display answer logic with id={rule.id} creation", e)
+            progress_callback(f"display answer {i} created")
+
+    @staticmethod
+    def _remap_logic(rule, poll: polls.Poll, ids: IdMap) -> None:
+        """Replace every draft id inside ``rule`` with the real one (real ids pass through)."""
+        rule.poll_id = poll.id
+        rule.reference_question_id = ids[rule.reference_question_id]
+        rule.reference_answer_id = [ids[i] for i in rule.reference_answer_id]
+        for attr in ("question_id", "answer_id", "target_question_id", "target_page_id"):
+            value = getattr(rule, attr, None)
+            if value is not None:
+                setattr(rule, attr, ids[value])
+
+    async def upload_poll(self, poll: polls.Poll, *, verbose: bool = False) -> polls.Poll:
+        """
+        Create a poll built from scratch (see ``Poll.add_block`` /
+        ``Block.add_question`` / ``Question.add_display`` ...) on the server.
+
+        The constructor generates ids, so everything that refers to another
+        item is created strictly one request after another, in dependency order::
+
+            poll -> blocks -> questions (+ matrix rows) -> answers -> logic
+
+        Temporary draft ids are translated to the real ids returned by the
+        server as we go, and written back onto the objects you passed in -
+        so after a successful upload ``poll``, its blocks, questions,
+        answers and logic rules carry real ids and ``question.jumps`` /
+        ``question.displays`` keep working.
+
+        Not transactional: if a request fails, :class:`exceptions.PollUploadError`
+        is raised and the partially created poll stays on the server
+        (``error.poll_id``; remove it with ``change_poll_status(..., "deleted")``).
+        The draft is then half-converted and should be rebuilt before a retry.
+
+        Counters, pages and sources are not uploaded.
+
+        :raises ValueError: the poll was already uploaded, or its logic references
+            items that are not part of it (checked before any request is sent).
+        :raises exceptions.PollUploadError: a request failed.
+        """
+        if not poll.is_draft:
+            raise ValueError(f"Poll already exists on the server (id={poll.id}); only drafts can be uploaded.")
+        poll.validate_draft()
+
+        # number of items to create for progress bar
+        total = (
+                1  # poll
+                + len(poll.pages)
+                + len(poll.blocks)
+                + sum(len(block.questions) for block in poll.blocks)
+                + sum(len(question.answers) if question.answers else 0 for question in poll.questions)
+                + len(poll.jumps)
+                + len(poll.displays)
+                + len(poll.display_answers)
+        )
+
+        # map of draft ids to created ones by constructor API
+        ids = IdMap()
+
+        progress = None
+        task = None
+
+        if verbose:
+            progress = Progress(
+                SpinnerColumn(),
+                TextColumn("{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+            )
+            progress.start()
+            task = progress.add_task("Creating poll...", total=total)
+
+        def update(description: str) -> None:
+            """
+            Called in each item creation function to indicate overall process
+            """
+            if progress is not None and task is not None:
+                progress.update(
+                    task,
+                    description=description,
+                    advance=1,
+                )
+
+        def raise_upload_exception(stage: str, exc: Exception) -> None:
+            """
+            Manage API call fails by specifing failed element id and traceback
+            """
+            raise exceptions.PollUploadError(
+                f"Poll upload failed at {stage}: {exc}", poll_id=poll.id, stage=stage
+            ) from exc
+
+        def upload_step(
+                stage: str | Callable[..., str],
+                success: str | Callable[..., str],
+        ):
+            """
+            Decorator handles exception for element creation and pushing progress bar
+            """
+            def decorator(
+                    func: Callable[P, Awaitable[T]],
+            ) -> Callable[P, Awaitable[T]]:
+                @functools.wraps(func)
+                async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+                    try:
+                        result = await func(*args, **kwargs)
+                    except Exception as exc:
+                        actual_stage = (
+                            stage(*args, **kwargs)
+                            if callable(stage)
+                            else stage
+                        )
+                        raise_upload_exception(actual_stage, exc)
+
+                    description = (
+                        success(*args, **kwargs)
+                        if callable(success)
+                        else success
+                    )
+                    update(description)
+
+                    return result
+
+                return wrapper
+
+            return decorator
+
+        @upload_step(
+            stage="poll",
+            success="Poll created",
+        )
+        async def create_poll_with_progress(poll_: polls.Poll) -> None:
+            """
+            Create new Poll instance in constructor and set actual fields from response to poll instance.
+            """
+            new_poll = await self.create_poll(poll=poll_)
+
+            poll_.id, poll_.uuid = new_poll.id, new_poll.uuid
+            poll_.created_at, poll_.updated_at = new_poll.created_at, new_poll.updated_at
+
+        @upload_step(
+            stage=lambda page: f"page {page.name!r}",
+            success=lambda page: f"Page {page.name!r} created",
+        )
+        async def create_page_with_progress(page: pages.Page) -> None:
+            """
+            Create new Page instance in constructor and set actual fields from response to poll instance.
+            """
+            draft_id = page.id
+            page.poll_id = page._poll.id
+            new_page = await self._client.page.create_page(page)
+            page.id = new_page.id
+            ids.register(draft_id, new_page.id)
+
+        @upload_step(
+            stage=lambda block: f"block {block.name!r}",
+            success=lambda block: f"Block {block.name!r} created",
+        )
+        async def create_block_with_progress(block: blocks.Block) -> None:
+            """
+            Create new Block instance in constructor and set actual fields from response to poll instance.
+            Map draft IDs to newly created actual constructor's IDs
+            """
+            draft_id = block.id
+            block.poll_id = poll.id
+
+            created_block = await self._client.block.create_block(block)
+
+            block.id = created_block.id
+            block.created_at = created_block.created_at
+
+            # update block id of related questions
+            for question in block.questions:
+                question.block_id = block.id
+
+            ids.register(draft_id=draft_id, real_id=block.id)
+
+
+        @upload_step(
+            stage=lambda question: f"question {question.title!r}",
+            success=lambda question: f"Question {question.title!r} created",
+        )
+        async def create_question_with_progress(question: questions.Question) -> None:
+            """
+            Create new Question and it's children instances in constructor.
+            Map draft IDs to newly created actual constructor's IDs
+            """
+            await self._upload_question(question, ids=ids)
+
+        @upload_step(
+            stage=lambda answer, question: f"question {question.title!r} answer {answer.title!r}",
+            success=lambda answer, question: f"Question {question.title!r} Answer {answer.title!r} created",
+        )
+        async def create_answer_with_progress(answer: questions.Answer, question: questions.Question) -> None:
+            """
+            Create new Answer instance in constructor.
+            Map draft IDs to newly created actual constructor's IDs
+            """
+            draft_answer_id = answer.id
+            created_answer = await self._client.question.create_answer(answer)
+            answer.id = created_answer.id
+            ids.register(draft_id=draft_answer_id, real_id=answer.id)
+
+
+        # Create instance of poll
+        await create_poll_with_progress(poll_=poll)
+
+        # Create pages. Could be executed asynchronous since no race overlap
+        await asyncio.gather(
+            *(create_page_with_progress(page) for page in poll.pages)
+        )
+
+        # Create blocks asynchronous since they are independent
+        await asyncio.gather(
+            *(create_block_with_progress(block) for block in poll.blocks)
+        )
+
+        # Create questions asynchronous since they are independent.
+        # Children are created in same waitable after parent question, so no race problems
+        await asyncio.gather(
+            *(create_question_with_progress(question) for question in poll.questions)
+        )
+
+        # Answers are safe to build asynchronous since all questions are created
+        await asyncio.gather(
+            *(create_answer_with_progress(answer, question) for question in poll.questions for answer in question.answers)
+        )
+        for question in poll.questions:
+            question.index_answers()
+
+        # Logics should be uploaded exclusively synchronous since race condition may lead to
+        # undefined behavior due to join conditions.
+        await self._upload_logic(poll=poll, ids=ids, progress_callback=update, exc_handler=raise_upload_exception)
+
+        # refetch all internal pointers
+        poll._refresh()
+
+        # stop progress bar
+        if verbose:
+            progress.stop()
+
+        return poll
 
 
 class BlockResource(BaseResource):

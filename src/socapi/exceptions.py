@@ -58,3 +58,20 @@ def get_error(response: Response) -> APIError:
         error_cls = API_ERRORS.get(response.error, UnknownError)
         return error_cls(**response.model_dump(include={"status", "error"}))
     return UnknownError(status=response.status, error="no error provided")
+
+
+class PollUploadError(Exception):
+    """
+    Raised when uploading a draft poll fails half-way.
+
+    The constructor has no transactional create, so the poll (and whatever
+    was created before the failure) stays on the server. ``poll_id`` is the
+    id of that partial poll (``None`` if even the poll header wasn't
+    created), ``stage`` says which item was being created. The original
+    exception is chained as ``__cause__``.
+    """
+
+    def __init__(self, message: str, poll_id: int | None, stage: str) -> None:
+        super().__init__(message)
+        self.poll_id = poll_id
+        self.stage = stage

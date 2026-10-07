@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from enum import IntEnum
+from typing import TYPE_CHECKING, Optional, Generator
+if TYPE_CHECKING:
+    # Only needed for the `_poll` backref type hint; importing at runtime
+    # would create a circular import with polls.py (Poll owns Blocks).
+    from .polls import Poll
 
 from ..text_worker import parse_text
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, PrivateAttr
 
 
 class PageData(BaseModel):
@@ -31,14 +36,44 @@ class Page(BaseModel):
     """A greeting/finish/disqualification page of a poll, as returned by ``/api/page/getall``."""
     model_config = ConfigDict(extra="forbid")
 
-    id: int = Field(..., ge=1)
-    name: str
-    data: PageData
-    # `ge=1` here is redundant: PageType's members are already exactly
-    # {1, 2, 3} (validated by enum membership), so it can't reject anything
-    # membership doesn't already reject - kept only because it's harmless.
-    type_id: PageType = Field(..., ge=1)
-    poll_id: int = Field(..., ge=0)
+    id: Optional[int] = Field(
+        default=None,
+        description="The page ID. Usually assigned by the server."
+    )
+
+    name: str = Field(
+        description="The name of the page."
+    )
+
+    data: PageData = Field(
+        default_factory=lambda: PageData(title="", description=""),
+        description="The page content, including its title and description."
+    )
+
+    type_id: PageType = Field(
+        ge=1,
+        description="The type of page: greeting, finish, or disqualification."
+    )
+
+    poll_id: Optional[int] = Field(
+        default=None,
+        description="The ID of the poll this page belongs to."
+    )
+
+    _poll: Optional[Poll] = PrivateAttr(default=None)
+    _id_generator: Generator[int, None, None] = PrivateAttr(default=None)
+
+
+def dump_create_payload(self):
+        """Use to filter fields in create page request"""
+        fields = {
+            "data",
+            "name",
+            "poll_id",
+            "type_id",
+        }
+
+        return self.model_dump(include=fields)
 
 
 class GetPagesPayload(BaseModel):
