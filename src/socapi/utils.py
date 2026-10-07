@@ -1,5 +1,4 @@
-from typing import Dict
-
+from typing import Dict, Any
 
 def increment():
     i = 0
@@ -40,3 +39,25 @@ class IdMap:
 
     def __len__(self) -> int:
         return len(self._map)
+
+
+def _coerce_enum(enum_cls: type, value: Any, what: str) -> Any:
+    """
+    Accept an enum member, its name (any case, e.g. ``"is_selected"``) or its raw value.
+
+    :raises ValueError: listing the allowed names.
+    """
+    if isinstance(value, enum_cls):
+        return value
+    if isinstance(value, str):
+        key = value.strip().casefold()
+        for member in enum_cls:
+            if member.name.casefold() == key:
+                return member
+    else:
+        try:
+            return enum_cls(value)
+        except ValueError:
+            pass
+    allowed = ", ".join(repr(m.name.lower()) for m in enum_cls)
+    raise ValueError(f"Unknown {what} {value!r}; allowed: {allowed}")

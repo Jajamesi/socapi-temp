@@ -32,3 +32,7 @@ def md_to_html(text: str) -> str:
 
     s = s.replace("\n", "<br>")  # multi-paragraph table cells
     return f"<{tag}>{s}</{tag}>"
+
+
+def md_html_serializer(self: "BaseModel", value: str) -> str:
+    return md_to_html(value)

@@ -114,7 +114,7 @@ def test_poll_order_and_lookup_work_on_draft():
 
 def test_add_display_stores_rule_and_is_visible_via_question():
     poll, _, age, gender = build_poll()
-    rule = gender.add_display(age, Comparator.IS_SELECTED, reference_answer_order=1)
+    rule = gender.add_display(age, Comparator.is_selected, reference_answer_order=1)
     assert gender.displays == [rule] and poll.displays == [rule]
     assert rule.question_id == gender.id
     assert rule.reference_question_id == age.id
@@ -125,21 +125,21 @@ def test_add_display_stores_rule_and_is_visible_via_question():
 
 def test_add_display_accepts_several_answers_and_none():
     _, _, age, gender = build_poll()
-    several = gender.add_display(age, Comparator.IS_SELECTED, [1, 3])
+    several = gender.add_display(age, Comparator.is_selected, [1, 3])
     assert several.reference_answer_id == [age.answers[0].id, age.answers[2].id]
-    none = gender.add_display(age, Comparator.IS_ANSWERED)
+    none = gender.add_display(age, Comparator.is_answered)
     assert none.reference_answer_id == []
 
 
 def test_unknown_answer_order_is_rejected_with_hint():
     _, _, age, gender = build_poll()
     with pytest.raises(ValueError, match="available: \\[1, 2, 3\\]"):
-        gender.add_display(age, Comparator.IS_SELECTED, reference_answer_order=9)
+        gender.add_display(age, Comparator.is_selected, reference_answer_order=9)
 
 
 def test_add_jump_defaults_reference_to_self():
     poll, _, age, gender = build_poll()
-    jump = age.add_jump(gender, Comparator.IS_SELECTED, 2)
+    jump = age.add_jump(gender, Comparator.is_selected, 2)
     assert age.jumps == [jump]
     assert jump.reference_question_id == age.id
     assert jump.target_question_id == gender.id
@@ -148,12 +148,12 @@ def test_add_jump_defaults_reference_to_self():
 def test_add_jump_rejects_bad_target():
     _, _, age, _ = build_poll()
     with pytest.raises(TypeError):
-        age.add_jump(42, Comparator.IS_ANSWERED)
+        age.add_jump(42, Comparator.is_answered)
 
 
 def test_answer_display():
     poll, _, age, gender = build_poll()
-    rule = gender.answers[1].add_display(age, Comparator.IS_SELECTED, 3)
+    rule = gender.answers[1].add_display(age, Comparator.is_selected, 3)
     assert poll.display_answers == [rule]
     assert gender.answers[1].display_answers == [rule]
     assert rule.answer_id == gender.answers[1].id
@@ -180,12 +180,12 @@ def test_structure_errors_are_explicit():
     with pytest.raises(ValueError, match="already belongs"):
         poll.add_block(intro)
     with pytest.raises(ValueError, match="block"):
-        Question(title="q", type_id=AnswerTypes.open_question).add_display(age, Comparator.IS_ANSWERED)
+        Question(title="q", type_id=AnswerTypes.open_question).add_display(age, Comparator.is_answered)
 
 
 def test_validate_draft_catches_foreign_references():
     poll, _, age, gender = build_poll()
-    rule = gender.add_display(age, Comparator.IS_SELECTED, 1)
+    rule = gender.add_display(age, Comparator.is_selected, 1)
     poll.validate_draft()  # consistent draft passes
     rule.reference_question_id = -999  # a draft id that belongs to no item of this poll
     with pytest.raises(ValueError, match="reference_question_id=-999"):
@@ -203,9 +203,9 @@ def test_parsing_api_answers_still_works():
 # --------------------------------------------------------------------------
 async def test_upload_creates_in_dependency_order_with_real_ids(client, monkeypatch):
     poll, intro, age, gender = build_poll()
-    gender.add_display(age, Comparator.IS_SELECTED, 1)
-    age.add_jump(gender, Comparator.IS_SELECTED, 2)
-    gender.answers[1].add_display(age, Comparator.IS_SELECTED, 3)
+    gender.add_display(age, Comparator.is_selected, 1)
+    age.add_jump(gender, Comparator.is_selected, 2)
+    gender.answers[1].add_display(age, Comparator.is_selected, 3)
 
     server = FakeServer()
     attach(client, monkeypatch, server)
@@ -265,7 +265,7 @@ async def test_upload_maps_matrix_rows(client, monkeypatch):
                   ChildQuestion(title="r2", type_id=AnswerTypes.single_answer)],
         answers=[Answer(title="yes"), Answer(title="no")],
     ))
-    matrix.add_display(age, Comparator.IS_SELECTED, 1)
+    matrix.add_display(age, Comparator.is_selected, 1)
     server = FakeServer()
     attach(client, monkeypatch, server)
     await client.poll.upload_poll(poll)
@@ -287,7 +287,7 @@ async def test_upload_rejects_already_uploaded_poll(client, monkeypatch):
 
 async def test_invalid_draft_sends_nothing(client, monkeypatch):
     poll, _, age, gender = build_poll()
-    rule = gender.add_display(age, Comparator.IS_SELECTED, 1)
+    rule = gender.add_display(age, Comparator.is_selected, 1)
     rule.reference_question_id = -999
     server = FakeServer()
     attach(client, monkeypatch, server)

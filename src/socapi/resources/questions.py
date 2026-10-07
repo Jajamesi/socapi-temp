@@ -9,13 +9,13 @@ if TYPE_CHECKING:
 from .logic import DisplayAnswers, Jump, Display, Comparator, JoinCondition, InternalCondition
 from .pages import Page
 
-from typing import Optional, List, Tuple, Any, Collection, Iterable, Sequence, Union, Generator
+from typing import Optional, List, Tuple, Any, Collection, Iterable, Literal, Sequence, Union, Generator
 from datetime import datetime
 from enum import StrEnum, IntEnum
 from pydantic import BaseModel, Field, ConfigDict, PrivateAttr, field_validator, model_validator
 
 from ..text_worker import parse_text, md_to_html
-from ..utils import increment
+from ..utils import increment, _coerce_enum
 
 
 class AnswerTypes(IntEnum):
@@ -104,6 +104,44 @@ def _resolve_reference_answers(
     return ids
 
 
+QuestionTypeName = Literal[
+    "single_answer", "dropdown", "single_answer_per_row", "multiple_choice", "open_question",
+    "ranking", "slider", "multiple_choice_per_row", "info_material", "email_request",
+]
+
+
+def _require_same_poll(item: Any, poll: "Poll", what: str) -> None:
+    """Fail early if ``item`` was not added to ``poll`` (otherwise the error only surfaces on upload)."""
+    if item._poll is not poll:
+        raise ValueError(f"{what} must be added to the same poll first.")
+
+
+def _rule_fields(
+        poll: "Poll",
+        reference_question: "ChildQuestion",
+        comparator: Comparator | str,
+        reference_answer_order: int | Sequence[int] | None,
+        join_condition: JoinCondition | str,
+        internal_condition: InternalCondition | str,
+        reference_answer_value: Sequence[str] | None,
+) -> dict[str, Any]:
+    """Fields shared by every logic rule (jump / display / answer display), validated and with orders -> ids."""
+    _require_same_poll(reference_question, poll, "reference_question")
+    comparator = _coerce_enum(Comparator, comparator, "comparator")
+    if comparator in (Comparator.is_selected, Comparator.is_not_selected) and reference_answer_order is None:
+        raise ValueError(f"Comparator {comparator.name} needs reference_answer_order (which answer to check).")
+    return dict(
+        poll_id=poll.id or 0,  # real id is substituted on upload
+        reference_question_id=reference_question.id,
+        comparator_id=comparator,
+        join_condition_id=_coerce_enum(JoinCondition, join_condition, "join_condition"),
+        internal_condition=_coerce_enum(InternalCondition, internal_condition, "internal_condition"),
+        disabled=False,
+        reference_answer_id=_resolve_reference_answers(reference_question, reference_answer_order),
+        reference_answer_value=list(reference_answer_value or []),
+    )
+
+
 class Answer(BaseModel):
     """A single answer option belonging to a :class:`Question`."""
     id: Optional[int] = None
@@ -114,15 +152,22 @@ class Answer(BaseModel):
     exclude_answer: bool = False
     optional: bool = False
     question_id: Optional[int] = None
-    input_validation: InputValidations = InputValidations.none
+    input_validation: InputValidations | str = InputValidations.none
     is_panel: bool = False
 
     _poll: Optional[Poll] = PrivateAttr(default=None)
 
-    @field_validator("input_validation", "title", mode="before")
+    # @field_validator("input_validation", "title", mode="before")
+    # @classmethod
+    # def handle_none(cls, v: Any) -> Any:
+    #     return _none_to_empty_str(v)
+
+    @field_validator('input_validation', mode='before')
     @classmethod
-    def handle_none(cls, v: Any) -> Any:
-        return _none_to_empty_str(v)
+    def coerce_input_validation(cls, v):
+        if v == "":
+            return InputValidations.none
+        return _coerce_enum(InputValidations, v, "input_validation")
 
     @property
     def human_title(self) -> str:
@@ -155,31 +200,60 @@ class Answer(BaseModel):
     def add_display(
             self,
             reference_question: "ChildQuestion | Question",
-            comparator: Comparator,
+            comparator: Comparator | str,
             reference_answer_order: int | Sequence[int] | None = None,
-            join_condition: JoinCondition = JoinCondition.OR,
-            internal_condition: InternalCondition = InternalCondition.OR,
+            join_condition: JoinCondition | str = JoinCondition.OR,
+            internal_condition: InternalCondition | str = InternalCondition.OR,
             reference_answer_value: Sequence[str] | None = None,
     ) -> DisplayAnswers:
         """
-        Show this answer only if the condition on ``reference_question`` holds.
+        Добавляет логику показа ответа: этот вариант ответа увидит только тот
+        респондент, у которого выполнено условие по вопросу ``reference_question``.
 
-        Requires the answer to be attached to a poll (add its question to a
-        block first). Returns the created rule, also stored in ``poll.display_answers``.
+        Условие читается как «в вопросе ``reference_question`` <comparator>
+        ответ(ы) <reference_answer_order>». Например, показать вариант
+        «Другое» только тем, кто в первом вопросе выбрал ответ №2::
+
+            q2.answers[0].add_display(q1, Comparator.IS_SELECTED, reference_answer_order=2)
+
+        Вопрос с этим ответом должен быть уже добавлен в блок опроса
+        (``block.add_question(...)``), иначе у ответа ещё нет ``id``.
+
+        Args:
+            reference_question: Вопрос (или строка матрицы), по ответам
+                которого проверяется условие. Должен быть из этого же опроса.
+            comparator: Как сравнивать: член ``Comparator`` или его имя строкой
+                (``"is_selected"``, ``"is_answered"`` ...).
+            reference_answer_order: Номер(а) ответа в ``reference_question``
+                (нумерация с 1, как на экране). Один номер или список.
+                Обязателен для ``IS_SELECTED`` / ``IS_NOT_SELECTED``;
+                для ``IS_ANSWERED`` / ``IS_NOT_ANSWERED`` не нужен.
+            join_condition: Как это правило объединяется с другими правилами
+                этого ответа: ``JoinCondition.OR`` (по умолчанию) или ``AND``.
+            internal_condition: Как объединяются несколько номеров внутри
+                одного правила: ``InternalCondition.OR`` (по умолчанию) или ``AND``.
+            reference_answer_value: Текстовые значения для сравнения (для
+                текстовых и числовых компараторов).
+
+        Returns:
+            Созданное правило ``DisplayAnswers``; оно также сохраняется в
+            ``poll.display_answers`` и отправляется при загрузке опроса.
+
+        Raises:
+            ValueError: Ответ не привязан к опросу, ``reference_question`` из
+                другого опроса, неизвестный компаратор, не указан
+                ``reference_answer_order`` там, где он нужен, или в
+                ``reference_question`` нет ответа с таким номером.
         """
         if self._poll is None:
             raise ValueError("Attach the question to a block of a poll before adding logic to its answers.")
 
         rule = DisplayAnswers(
-            poll_id=self._poll.id or 0,  # real id is substituted on upload
             answer_id=self.id,
-            reference_question_id=reference_question.id,
-            comparator_id=comparator,
-            join_condition_id=join_condition,
-            internal_condition=internal_condition,
-            disabled=False,
-            reference_answer_id=_resolve_reference_answers(reference_question, reference_answer_order),
-            reference_answer_value=list(reference_answer_value or []),
+            **_rule_fields(
+                self._poll, reference_question, comparator, reference_answer_order,
+                join_condition, internal_condition, reference_answer_value,
+            ),
         )
         self._poll._attach_logic(rule, self._poll.display_answers)
         return rule
@@ -288,9 +362,9 @@ class ChildQuestion(BaseModel):
             "transpose",
             "type_id"
         }
-        dump = self.model_dump(include=fields)
-        dump["title"] = md_to_html(dump["title"])
-        return  dump
+        payload = self.model_dump(include=fields)
+        payload["title"] = md_to_html(payload["title"])
+        return  payload
 
     @property
     def is_child(self):
@@ -312,6 +386,13 @@ class Question(ChildQuestion):
     _answers_by_id: dict[int, Answer] = PrivateAttr(default_factory=dict)
     _str_template: str = PrivateAttr(default="Вопрос будет показан, если {conditions}.")
     # ^ "The question will be shown if {conditions}." - used elsewhere to render logic as text.
+
+    @model_validator(mode='after')
+    def handle_min_answer_for_info_screen(self) -> Question:
+        if self.type_id == AnswerTypes.info_material:
+            self.min_answer = 0
+            self.max_answer = 1
+        return self
 
     @property
     def is_child(self):
@@ -413,31 +494,59 @@ class Question(ChildQuestion):
     def add_display(
             self,
             reference_question: ChildQuestion | Question,
-            comparator: Comparator,
+            comparator: Comparator | str,
             reference_answer_order: int | Sequence[int] | None = None,
-            join_condition: JoinCondition = JoinCondition.OR,
-            internal_condition: InternalCondition = InternalCondition.OR,
+            join_condition: JoinCondition | str = JoinCondition.OR,
+            internal_condition: InternalCondition | str = InternalCondition.OR,
             reference_answer_value: Sequence[str] | None = None,
     ) -> Display:
         """
-        Show this question only if the condition on ``reference_question`` holds.
+        Добавляет логику показа вопроса: этот вопрос увидит только тот
+        респондент, у которого выполнено условие по вопросу ``reference_question``.
 
-        :param reference_answer_order: 1-based position(s) of the answer(s)
-            of ``reference_question`` the comparator is checked against.
-        :param reference_answer_value: free-text values, for text comparators.
-        :return: the created rule, also stored in ``poll.displays``.
+        Условие читается как «в вопросе ``reference_question`` <comparator>
+        ответ(ы) <reference_answer_order>». Например, показать вопрос 2 только
+        тем, кто в вопросе 1 выбрал ответы 1 или 3::
+
+            q2.add_display(q1, Comparator.IS_SELECTED, reference_answer_order=[1, 3])
+
+        Вопрос должен быть уже добавлен в блок (``block.add_question(...)``).
+        Несколько вызовов дают несколько правил; как они объединяются между
+        собой, задаёт ``join_condition``.
+
+        Args:
+            reference_question: Вопрос (или строка матрицы), по ответам
+                которого проверяется условие. Должен быть из этого же опроса.
+            comparator: Как сравнивать: член ``Comparator`` или его имя строкой
+                (``"is_selected"``, ``"is_answered"`` ...).
+            reference_answer_order: Номер(а) ответа в ``reference_question``
+                (нумерация с 1, как на экране). Один номер или список.
+                Обязателен для ``IS_SELECTED`` / ``IS_NOT_SELECTED``;
+                для ``IS_ANSWERED`` / ``IS_NOT_ANSWERED`` не нужен.
+            join_condition: Как это правило объединяется с другими правилами
+                этого вопроса: ``JoinCondition.OR`` (по умолчанию) или ``AND``.
+            internal_condition: Как объединяются несколько номеров внутри
+                одного правила: ``InternalCondition.OR`` (по умолчанию) или ``AND``.
+            reference_answer_value: Текстовые значения для сравнения (для
+                текстовых и числовых компараторов).
+
+        Returns:
+            Созданное правило ``Display``; оно также сохраняется в
+            ``poll.displays`` и отправляется при загрузке опроса.
+
+        Raises:
+            ValueError: Вопрос не привязан к опросу, ``reference_question`` из
+                другого опроса, неизвестный компаратор, не указан
+                ``reference_answer_order`` там, где он нужен, или в
+                ``reference_question`` нет ответа с таким номером.
         """
         poll = self._require_poll()
         rule = Display(
-            poll_id=poll.id or 0,  # real id is substituted on upload
             question_id=self.id,
-            reference_question_id=reference_question.id,
-            comparator_id=comparator,
-            join_condition_id=join_condition,
-            internal_condition=internal_condition,
-            disabled=False,
-            reference_answer_id=_resolve_reference_answers(reference_question, reference_answer_order),
-            reference_answer_value=list(reference_answer_value or []),
+            **_rule_fields(
+                poll, reference_question, comparator, reference_answer_order,
+                join_condition, internal_condition, reference_answer_value,
+            ),
         )
         poll._attach_logic(rule, poll.displays)
         return rule
@@ -445,49 +554,73 @@ class Question(ChildQuestion):
     def add_jump(
             self,
             target: Question | Page,
-            comparator: Comparator,
+            comparator: Comparator | str,
             reference_answer_order: int | Sequence[int] | None = None,
             reference_question: ChildQuestion | None = None,
-            join_condition: JoinCondition = JoinCondition.OR,
-            internal_condition: InternalCondition = InternalCondition.OR,
+            join_condition: JoinCondition | str = JoinCondition.OR,
+            internal_condition: InternalCondition | str = InternalCondition.OR,
             reference_answer_value: Sequence[str] | None = None,
     ) -> Jump:
         """
-        After this question, jump to ``target`` if the condition holds.
+        Добавляет переход: после этого вопроса респондент перескакивает на
+        ``target``, если выполнено условие.
 
-        :param target: a question of the same poll, or an existing (server
-            side) :class:`Page` such as the finish / disqualification page.
-        :param reference_question: question whose answer is checked;
-            defaults to this question.
-        :return: the created rule, also stored in ``poll.jumps``.
+        По умолчанию условие проверяется по ответам на сам этот вопрос.
+        Например, тех, кто выбрал ответ 2, отправить сразу на страницу
+        завершения::
+
+            q1.add_jump(finish_page, Comparator.IS_SELECTED, reference_answer_order=2)
+
+        Args:
+            target: Куда перейти: вопрос этого же опроса либо страница
+                (``poll.add_page(...)`` или уже существующая на сервере,
+                например страница завершения / дисквалификации).
+            comparator: Как сравнивать: член ``Comparator`` или его имя строкой.
+            reference_answer_order: Номер(а) ответа в проверяемом вопросе
+                (нумерация с 1). Обязателен для ``IS_SELECTED`` /
+                ``IS_NOT_SELECTED``.
+            reference_question: Чей ответ проверять. По умолчанию — этот же
+                вопрос; можно указать другой вопрос или строку матрицы.
+            join_condition: Как это правило объединяется с другими переходами
+                этого вопроса: ``JoinCondition.OR`` (по умолчанию) или ``AND``.
+            internal_condition: Как объединяются несколько номеров внутри
+                одного правила: ``InternalCondition.OR`` (по умолчанию) или ``AND``.
+            reference_answer_value: Текстовые значения для сравнения.
+
+        Returns:
+            Созданное правило ``Jump``; оно также сохраняется в
+            ``poll.jumps`` и отправляется при загрузке опроса.
+
+        Raises:
+            TypeError: ``target`` — не вопрос и не страница.
+            ValueError: Вопрос не привязан к опросу, ``target`` или
+                ``reference_question`` из другого опроса, неизвестный
+                компаратор, не указан ``reference_answer_order`` там, где он
+                нужен, или в проверяемом вопросе нет ответа с таким номером.
         """
         poll = self._require_poll()
-        reference_question = reference_question or self
+        fields = _rule_fields(
+            poll, reference_question or self, comparator, reference_answer_order,
+            join_condition, internal_condition, reference_answer_value,
+        )
 
         targets: dict[str, int] = {}
         if isinstance(target, Question):
+            _require_same_poll(target, poll, "Jump target question")
             targets["target_question_id"] = target.id
         elif isinstance(target, Page):
+            # a page of this poll (poll.add_page) or one that already exists on the server
+            if target._poll is not None and target._poll is not poll:
+                raise ValueError("Jump target page belongs to another poll.")
+            if target.id is None:
+                raise ValueError("Jump target page has no id: add it with poll.add_page(...) first.")
             targets["target_page_id"] = target.id
         else:
             raise TypeError(f"Jump target must be a Question or a Page, got {type(target).__name__}")
 
-        rule = Jump(
-            poll_id=poll.id or 0,  # real id is substituted on upload
-            question_id=self.id,
-            reference_question_id=reference_question.id,
-            comparator_id=comparator,
-            join_condition_id=join_condition,
-            internal_condition=internal_condition,
-            disabled=False,
-            reference_answer_id=_resolve_reference_answers(reference_question, reference_answer_order),
-            reference_answer_value=list(reference_answer_value or []),
-            **targets,
-        )
-
+        rule = Jump(question_id=self.id, **fields, **targets)
         poll._attach_logic(rule, poll.jumps)
         return rule
-
 
 
 class QuestionInclude(StrEnum):
@@ -528,5 +661,4 @@ class GetPollQuestionPayload(BaseModel):
 
     poll_id: int = Field(..., ge=1)
     includes: list[QuestionInclude] = Field(default_factory=lambda: list(ALL_QUESTION_INCLUDES))
-
 

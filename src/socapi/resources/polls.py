@@ -1,22 +1,23 @@
 from __future__ import annotations
 
-from typing import Optional, List, Any, Literal, Generator, overload
+from typing import Optional, List, Any, Literal, Generator, overload, Annotated
 from datetime import datetime
 from enum import IntEnum, StrEnum
-from pydantic import BaseModel, Field, field_validator, ConfigDict, model_validator, PrivateAttr
+from pydantic import BaseModel, Field, field_validator, ConfigDict, model_validator, PrivateAttr, AliasChoices
 from uuid import UUID
 from itertools import chain
 
-from ..text_worker import parse_text
+from ..text_worker import parse_text, md_to_html
 
 from .counters import Counter
 from . import logic
-from .pages import Page, PageData, PageType
+from .pages import Page, PageData, PageType, PageTypeName, coerce_page_type
 from .blocks import Block
 from .sources import Source
 from .questions import Question, ChildQuestion
 from ..utils import is_draft_id
 from .. import io
+
 from dataclasses import dataclass, field
 import ambers as am
 
@@ -67,19 +68,60 @@ class PollType(IntEnum):
     BY_BLOCK = 2        # Отображение опроса по блокам / one block per screen
     ONE_QUESTION = 3     # Отображение опроса по одному вопросу / one question per screen
 
+PollTypeName = Literal["all_at_once", "by_block", "one_question"]
+
+def coerce_poll_type(value: "PollType | PollTypeName | int") -> PollType:
+    """``"all_at_once"`` / ``PageType.ALL_AT_ONCE`` / ``1`` -> ``PollType.ALL_AT_ONCE``; ``ValueError`` for anything else."""
+    if isinstance(value, str):
+        try:
+            return PollType[value.strip().upper()]
+        except KeyError:
+            pass
+    else:
+        try:
+            return PollType(value)
+        except ValueError:
+            pass
+    allowed = ", ".join(repr(t.name.lower()) for t in PageType)
+    raise ValueError(f"Unknown poll type {value!r}; allowed: {allowed}")
+
 
 class Poll(BaseModel):
     """
-    A full poll (survey): header metadata plus its blocks, questions, pages,
-    logic rules and counters. Constructing/validating a ``Poll`` (via
-    ``Poll(...)`` or ``Poll.model_validate(...)``) automatically wires
-    everything together - back-references (``_poll`` on blocks/questions/
-    answers/logic rules, ``_parent_question`` on children), display order
-    (``_poll_order``), and id-keyed lookup indexes - via the ``@model_validator``
-    methods below. Nothing further needs to be called after construction;
-    ``rebind_questions()``/``rebind_logics()``/``rebind_blocks()`` exist only
-    to manually re-run that wiring later, e.g. after mutating ``self.blocks``
-    in place post-construction.
+    Полный опрос (survey), включающий метаданные, блоки, вопросы, страницы,
+    правила логики и счётчики.
+
+    При создании и валидации ``Poll`` — через ``Poll(...)`` или
+    ``Poll.model_validate(...)`` — модель автоматически связывает все вложенные
+    объекты между собой. Устанавливаются обратные ссылки ``_poll`` для блоков,
+    вопросов, ответов и правил логики, ``_parent_question`` для дочерних вопросов,
+    а также порядок отображения ``_poll_order`` и внутренние индексы для быстрого
+    поиска объектов по их ``id``.
+
+    После создания ``Poll`` дополнительно вызывать методы привязки не требуется.
+    Методы ``rebind_questions()``, ``rebind_logics()`` и ``rebind_blocks()``
+    предназначены только для повторной синхронизации этих связей после
+    последующего изменения соответствующих списков, например после изменения
+    ``self.blocks`` непосредственно.
+
+    Для создания опроса достаточно передать обязательные поля модели, в частности
+    ``name``, ``user_id`` и ``type_id``. Остальные поля имеют значения по умолчанию
+    или являются необязательными.
+
+    Основные способы работы с содержимым опроса:
+
+    - ``add_page(page)`` — добавить уже созданный объект ``Page``;
+    - ``add_page(name=..., page_type=..., ...)`` — создать и добавить страницу
+      непосредственно из аргументов;
+    - аналогичные методы используются для добавления и связывания других
+      составляющих опроса.
+
+    При добавлении объектов ``Poll`` самостоятельно назначает необходимые
+    идентификаторы, устанавливает обратные ссылки на себя и обновляет внутренние
+    индексы.
+
+    Private attributes (поля с префиксом ``_``) являются внутренним состоянием
+    модели и не должны задаваться при создании ``Poll`` напрямую.
     """
     id: int | None = None
     uuid: UUID | None = None
@@ -92,7 +134,7 @@ class Poll(BaseModel):
     deleted_at: Optional[datetime] = None
     status_id: PollStatus = Field(default=PollStatus.ACTIVE, description="Default state for created poll")
     status_updated_at: Optional[datetime] = None
-    type_id: PollType
+    type_id: PollType | PollTypeName
     is_multiple: bool = True       # can be used several times
     can_cameback: bool = False     # almost never used as True
     field_date: Optional[datetime] = None  # ?
@@ -151,6 +193,11 @@ class Poll(BaseModel):
                 for answer in question.answers or []:
                     answer._poll = self
         return self
+
+    @field_validator('type_id', mode='before')
+    @classmethod
+    def validate_type_id(cls, value: str| int | PollType) -> PollType:
+        return coerce_poll_type(value)
 
     @model_validator(mode="after")
     def _bind_child_to_parent(self) -> Poll:
@@ -490,8 +537,10 @@ class Poll(BaseModel):
             "track_id",
             "type_id",
         }
-
-        return self.model_dump(include=fields)
+        payload = self.model_dump(include=fields)
+        payload["title"] = md_to_html(payload["title"])
+        payload["description"] = md_to_html(payload["description"])
+        return payload
 
     @classmethod
     def decrement_id(cls):
@@ -535,18 +584,88 @@ class Poll(BaseModel):
         rule._poll = self
         collection.append(rule)
 
+    @overload
     def add_block(self, block: Block) -> Block:
-        """Append ``block`` to the poll; its ``order`` and temporary id are assigned here."""
+        ...
+
+    @overload
+    def add_block(
+            self,
+            *,
+            name: str,
+            title: Optional[str] = None,
+            description: Optional[str] = None,
+            is_panel: bool = False,
+    ) -> Block:
+        ...
+
+    def add_block(
+            self,
+            block: Block | None = None,
+            *,
+            name: str | None = None,
+            title: Optional[str] = None,
+            description: Optional[str] = None,
+            is_panel: bool = False,
+    ) -> Block:
+        """
+        Добавляет блок (группу вопросов) в опрос.
+
+        Блок можно передать двумя способами:
+
+        1. Готовый объект ``Block``: ``poll.add_block(block)``.
+
+        2. Аргументы для создания блока::
+
+               block = poll.add_block(name="Блок 1", title="О вас")
+
+        Блоки идут в том порядке, в котором добавлены. Блоку автоматически
+        назначаются ``order`` и временный ``id``. Вопросы, уже лежащие в
+        переданном ``Block(questions=[...])``, тоже получают ``id`` и
+        привязываются к опросу; дальше вопросы удобнее добавлять через
+        ``block.add_question(...)``.
+
+        Args:
+            block: Готовый объект ``Block``. Если указан, остальные
+                аргументы указывать нельзя.
+            name: Служебное название блока. Обязательно, если ``block``
+                не передан.
+            title: Заголовок блока, который видит респондент.
+            description: Описание блока.
+            is_panel: Признак панельного блока.
+
+        Returns:
+            Добавленный объект ``Block``.
+
+        Raises:
+            ValueError: Блок уже принадлежит опросу; переданы и ``block``,
+                и аргументы для создания; не указан ``name``.
+        """
+        if block is not None:
+            if name is not None or title is not None or description is not None or is_panel:
+                raise ValueError("Pass either a ready Block or arguments to create one, not both.")
+        else:
+            if name is None:
+                raise ValueError("name is required when no Block object is passed.")
+            block = Block(name=name, title=title or "", description=description or "", is_panel=is_panel)
+
         if block._poll is not None:
             raise ValueError("This block already belongs to a poll.")
 
+        # questions given to the Block constructor are adopted below, one by one,
+        # so they get ids / numbering like any question added later
+        preset_questions, block.questions = list(block.questions), []
+
         block.order = len(self.blocks) + 1
         block.id = self._next_id()
+        block.poll_id = self.id
         block._id_generator = self._id_generator
         block._poll = self
 
         self.blocks.append(block)
         self._refresh()
+        for question in preset_questions:
+            block.add_question(question)
         return block
 
     def _draft_items(self) -> tuple[set[int], list[logic.Logic]]:
@@ -600,7 +719,7 @@ class Poll(BaseModel):
             self,
             *,
             name: str,
-            page_type: PageType | Literal["greeting", "finish", "disqualification"],
+            type_id: PageType | PageTypeName,
             title: Optional[str] = None,
             description: Optional[str] = None,
     ) -> Page:
@@ -611,57 +730,61 @@ class Poll(BaseModel):
             page: Page | None = None,
             *,
             name: str | None = None,
-            page_type: PageType | Literal["greeting", "finish", "disqualification"] | None = None,
-            title: Optional[str] = "",
-            description: Optional[str] = "",
+            type_id: PageType | PageTypeName | None = None,
+            title: Optional[str] = None,
+            description: Optional[str] = None,
     ) -> Page:
         """
-        Добавляет страницу к опросу.
+        Добавляет в опрос страницу: приветствие, завершение или дисквалификацию.
 
         Страницу можно передать двумя способами:
 
-        1. Передать уже созданный объект ``Page``:
-           ``add_page(page)``.
-           В этом случае все необходимые данные должны быть уже заданы
-           при создании объекта ``Page``.
+        1. Готовый объект ``Page``: ``poll.add_page(page)``.
+           Все данные должны быть заданы при создании ``Page``.
 
-        2. Передать аргументы для создания ``Page``:
-           ``add_page(name=..., page_type=...)``.
-           В этом случае обязательны ``name`` и ``page_type``.
-           ``title`` и ``description`` являются необязательными.
+        2. Аргументы для создания ``Page``::
 
-        При добавлении странице автоматически назначаются ``id`` и ``poll_id``,
-        а также устанавливается связь со следующим уровнем объекта ``Poll``.
+               finish = poll.add_page(
+                   name="Спасибо",
+                   page_type="finish",
+                   title="Опрос завершён",
+                   description="Спасибо за участие!",
+               )
+
+        Страницы каждого типа бывают только по одной. Странице автоматически
+        назначаются временный ``id`` и ``poll_id``, и она привязывается к
+        опросу, так что на неё можно ссылаться в переходах:
+        ``question.add_jump(finish, ...)``.
 
         Args:
-            page: Уже созданный объект ``Page``. Если указан, аргументы
-                ``name``, ``page_type``, ``title`` и ``description`` не используются.
-
+            page: Готовый объект ``Page``. Если указан, остальные аргументы
+                указывать нельзя.
             name: Название страницы. Обязательно, если ``page`` не передан.
-
-            page_type: Тип страницы. Обязательно, если ``page`` не передан.
-                Допустимые строковые значения: ``"greeting"``, ``"finish"``,
-                ``"disqualification"``.
-
-            title: Заголовок страницы. Используется только при создании
-                ``Page`` из аргументов.
-
-            description: Описание страницы. Используется только при создании
-                ``Page`` из аргументов.
+            type_id: Тип страницы: ``PageType`` или строка ``"greeting"``,
+                ``"finish"``, ``"disqualification"``. Обязателен, если
+                ``page`` не передан.
+            title: Заголовок страницы (по умолчанию пустой).
+            description: Текст страницы (по умолчанию пустой).
 
         Returns:
             Добавленный объект ``Page``.
 
         Raises:
-            ValueError: Если страница уже принадлежит другому опросу или
-                страница такого типа уже существует в этом опросе.
+            ValueError: Переданы и ``page``, и аргументы для создания; не
+                указан ``name`` или ``page_type``; неизвестный тип страницы;
+                страница уже принадлежит опросу; страница такого типа в
+                этом опросе уже есть.
         """
-
-        if page is None:
+        if page is not None:
+            if any(v is not None for v in (name, type_id, title, description)):
+                raise ValueError("Pass either a ready Page or arguments to create one, not both.")
+        else:
+            if name is None or type_id is None:
+                raise ValueError("name and page_type are required when no Page object is passed.")
             page = Page(
                 name=name,
-                data=PageData(title=title, description=description),
-                type_id=page_type,
+                data=PageData(title=title or "", description=description or ""),
+                type_id=coerce_page_type(type_id),
             )
 
         if page._poll is not None:
