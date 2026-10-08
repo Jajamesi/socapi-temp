@@ -9,8 +9,8 @@ from itertools import chain
 
 from ..text_worker import parse_text, md_to_html
 
-from .counters import Counter
-from . import logic
+from .counters import Counter, CounterCondition
+from . import logic, counters
 from .pages import Page, PageData, PageType, PageTypeName, coerce_page_type
 from .blocks import Block
 from .sources import Source
@@ -144,8 +144,8 @@ class Poll(BaseModel):
 
     poll_responsible: Optional[int] = None
 
-    meta: Optional[List[int]] = Field(default=[0])  # missing in poll/full
-    counters: Optional[List[Counter]] = None
+    meta: Optional[List[int] | int] = Field(default=[0])  # missing in poll/full
+    counters: Optional[List[Counter]] = Field(default_factory=list)
     notify_flag: bool = False
 
     blocks: List[Block] = Field(default_factory=list)
@@ -200,6 +200,15 @@ class Poll(BaseModel):
     def validate_type_id(cls, value: str| int | PollType) -> PollType:
         return coerce_poll_type(value)
 
+    @field_validator('meta', mode='before')
+    @classmethod
+    def validate_meta(cls, value: int | List[int]) -> List[int]:
+        if isinstance(value, list):
+            return value
+        elif isinstance(value, int):
+            return [value]
+
+
     @model_validator(mode="after")
     def _bind_child_to_parent(self) -> Poll:
         """Set ``_parent_question`` on every nested (matrix-row) child question."""
@@ -234,6 +243,24 @@ class Poll(BaseModel):
     def rebind_blocks(self) -> None:
         """Manually re-run :meth:`_bind_blocks_to_poll` (already runs automatically on construction)."""
         self._bind_blocks_to_poll()
+
+    @field_validator('counters', mode='before')
+    @classmethod
+    def validate_counters(cls, value: None | int| List[int]) -> List[int]:
+        if value is None:
+            return []
+        return value
+
+    @model_validator(mode="after")
+    def _bind_counters_to_poll(self) -> Poll:
+        """Set ``_poll`` on every counter."""
+        for counter in self.counters:
+            counter._poll = self
+        return self
+
+    def rebind_counter(self) -> None:
+        """Manually re-run :meth:`_bind_counters_to_poll` (already runs automatically on construction)."""
+        self._bind_counters_to_poll()
 
     @property
     def questions(self) -> List[Question]:
@@ -802,6 +829,63 @@ class Poll(BaseModel):
         self.pages.append(page)
         self.index_pages()
         return page
+
+    @overload
+    def add_counter(self, counter: Counter) -> Counter:
+        ...
+
+    @overload
+    def add_counter(
+            self,
+            *,
+            name: str,
+            quota: int,
+
+            description: Optional[str] = None,
+            source_ids: list[int] | None = None,
+            conditions: list[CounterCondition] | None = None
+
+    ) -> Counter:
+        ...
+
+    def add_counter(
+            self,
+            counter: Counter | None = None,
+            *,
+            name: str,
+            quota: int,
+
+            description: Optional[str] = None,
+            source_ids: list[int] | None = None,
+            conditions: list[CounterCondition] | None = None
+    ) -> Counter:
+        """
+
+        """
+        if counter is not None:
+            if any(v is not None for v in (name, quota, all(i is None for i  in [source_ids, conditions]))):
+                raise ValueError("Pass either a ready Page or arguments to create one, not both.")
+        else:
+            if name is None or quota is None or all(i is None for i  in [source_ids, conditions]):
+                raise ValueError("name, quota and source_ids / conditions are required when no Counter object is passed.")
+            counter = Counter(
+                name=name,
+                quota=quota,
+                description=description,
+                source_ids=source_ids,
+                conditions=conditions or None,
+            )
+
+        if counter._poll is not None:
+            raise ValueError("This counter already belongs to a poll.")
+
+        counter.id = self._next_id()
+        counter.poll_id = self.id
+        counter._poll = self
+
+        self.counters.append(counter)
+
+        return counter
 
 
 class GetPollHeaderPayload(BaseModel):
