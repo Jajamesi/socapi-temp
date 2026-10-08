@@ -21,6 +21,7 @@ from rich.progress import (
     TaskProgressColumn,
 )
 
+from socapi.resources.sources import Sources
 from . import config, exceptions
 from .utils import IdMap
 
@@ -1354,7 +1355,7 @@ class LogicResource(BaseResource):
 class SourceResource(BaseResource):
     """API area for respondent traffic sources."""
 
-    async def get_sources(self) -> List[sources.Source]:
+    async def get_sources(self) -> Sources:
         """List all configured traffic sources."""
         request = Request(
             method="POST",
@@ -1362,7 +1363,9 @@ class SourceResource(BaseResource):
             endpoint=config.Endpoint.sources_get,
         )
         response = await self._request(request=request)
-        return [sources.Source(**s) for s in response.result]
+        return sources.Sources(
+            sources = [sources.Source(**s) for s in response.result]
+        )
 
 
 # ParserClient's resource-namespace fields reference these classes by name
