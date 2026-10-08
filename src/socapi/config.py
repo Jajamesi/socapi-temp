@@ -50,6 +50,8 @@ class Endpoint(StrEnum):
     delete_source = "/api/source/delete"
 
     duplicate_poll = "api/poll/duplicate"
+
+    get_meta = "/api/meta/full"
     update_meta = "/api/poll/update/meta"
 
     update_poll = "/api/poll/update"

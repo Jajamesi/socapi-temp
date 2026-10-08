@@ -25,7 +25,7 @@ from socapi.resources.sources import Sources
 from . import config, exceptions
 from .utils import IdMap
 
-from .resources import user, pages, polls, blocks, questions, logic, counters, sources
+from .resources import user, pages, polls, blocks, questions, logic, counters, sources, meta
 
 TOKEN_TTL = 30 # strict token TTL
 MAX_CHUNK_SIZE = 1000 # N items to return paginated resources
@@ -203,6 +203,7 @@ class ParserClient(BaseModel):
     logic: LogicResource = None
     counter: CounterResource = None
     source: SourceResource = None
+    meta: MetaResource = None
 
     _session: Optional[aiohttp.ClientSession] = PrivateAttr(default=None)
     _lock: asyncio.Lock = PrivateAttr(default_factory=asyncio.Lock)
@@ -224,6 +225,7 @@ class ParserClient(BaseModel):
         self.logic = LogicResource(self)
         self.counter = CounterResource(self)
         self.source =  SourceResource(self)
+        self.meta = MetaResource(self)
 
 
     def _login_password_valid(self) -> bool:
@@ -1430,7 +1432,18 @@ class SourceResource(BaseResource):
         response = await self._request(request=request)
         return None
 
+class MetaResource(BaseResource):
+    """API area for access levels."""
 
+    async def get_mate(self) -> meta.Meta:
+        """List all configured traffic sources."""
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.get_meta,
+        )
+        response = await self._request(request=request)
+        return meta.Meta(meta=response.result)
 
 # ParserClient's resource-namespace fields reference these classes by name
 # before they're defined further down this module. `from __future__ import

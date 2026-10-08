@@ -7,3 +7,4 @@ from .resources.counters import Counter, CounterCondition, CounterPredicate, Pre
 from .resources.logic import Display, DisplayAnswers, Jump, InternalCondition, JoinCondition, Comparator
 from .resources.pages import Page, PageType, PageData
 from .resources.sources import Source, Sources
+from .resources.meta import Meta, MetaParent, MetaObject

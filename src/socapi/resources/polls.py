@@ -143,7 +143,7 @@ class Poll(BaseModel):
 
     poll_responsible: Optional[int] = None
 
-    meta: Optional[List[int]] = Field(default=[0])  # missing in poll/full
+    meta: Optional[List[int] | int] = Field(default=[0])  # missing in poll/full
     counters: Optional[List[Counter]] = None
     notify_flag: bool = False
 
@@ -198,6 +198,15 @@ class Poll(BaseModel):
     @classmethod
     def validate_type_id(cls, value: str| int | PollType) -> PollType:
         return coerce_poll_type(value)
+
+    @field_validator('meta', mode='before')
+    @classmethod
+    def validate_meta(cls, value: int | List[int]) -> List[int]:
+        if isinstance(value, list):
+            return value
+        elif isinstance(value, int):
+            return [value]
+
 
     @model_validator(mode="after")
     def _bind_child_to_parent(self) -> Poll:
