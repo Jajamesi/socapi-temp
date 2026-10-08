@@ -960,6 +960,7 @@ class PollResource(BaseResource):
                 + len(poll.jumps)
                 + len(poll.displays)
                 + len(poll.display_answers)
+                + len(poll.counters)
         )
 
         # map of draft ids to created ones by constructor API
@@ -1109,6 +1110,19 @@ class PollResource(BaseResource):
             ids.register(draft_id=draft_answer_id, real_id=answer.id)
 
 
+        @upload_step(
+            stage=lambda counter: f"counter {counter.name!r}",
+            success=lambda counter: f"Counter {counter.name!r} created",
+        )
+        async def create_counters_with_progress(counter: counters.Counter) -> None:
+            """
+            Create new Counter instance in constructor.
+            """
+            counter.poll_id = poll.id
+            created_counter = await self._client.counter.create_counter(counter)
+            counter.id = created_counter.id
+
+
         # Create instance of poll
         await create_poll_with_progress(poll_=poll)
 
@@ -1138,6 +1152,11 @@ class PollResource(BaseResource):
         # Logics should be uploaded exclusively synchronous since race condition may lead to
         # undefined behavior due to join conditions.
         await self._upload_logic(poll=poll, ids=ids, progress_callback=update, exc_handler=raise_upload_exception)
+
+        # Create counters asynchronous.
+        await asyncio.gather(
+            *(create_counters_with_progress(counter) for counter in poll.counters)
+        )
 
         # refetch all internal pointers
         poll._refresh()

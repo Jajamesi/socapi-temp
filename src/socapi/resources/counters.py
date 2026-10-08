@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only needed for the `_poll` backref type hint; importing at runtime
+    # would create a circular import with polls.py (Poll owns Blocks).
+    from .polls import Poll
+
 from enum import IntEnum
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, PrivateAttr, field_validator
 from typing import List, Optional
 from datetime import datetime
 from .logic import InternalCondition
@@ -92,18 +99,29 @@ class Counter(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: Optional[int] = None
-    poll_id: int
+    poll_id: Optional[int] = None
     name: str
-    description: str
+    description: Optional[str] = None
     hits: Optional[int] = None
     order: Optional[int] = None
     quota: int
-    is_disabled: bool
+    is_disabled: bool = False
     created_at: datetime | None = None
     deleted_at: datetime | None = None
     conditions: list[CounterCondition] | None = None
-    source_ids: list[int] | None = None
+    source_ids: list[int] | int | None = None
     sources: list[CounterSource] | None = None
+
+    _poll: Optional[Poll] = PrivateAttr(default=None)
+
+    @field_validator('source_ids', mode='before')
+    @classmethod
+    def validate_source_ids(cls, v):
+        if isinstance(v, list):
+            return v
+        elif isinstance(v, int):
+            return [v]
+        return v
 
     def dump_create_payload(self):
         """Use to filter fields in create counter request"""
