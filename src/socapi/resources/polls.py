@@ -155,7 +155,7 @@ class Poll(BaseModel):
     pages: List[Page] = Field(default_factory=list)
 
     sources: List[Source] = Field(default_factory=list)
-    source_id: Optional[str] = None
+    source_id: Optional[List[int]] = None
     state_id: int = 0
     # Shape unknown (like counters.CounterSource) - typed Any rather than
     # None so a future non-null value doesn't fail validation outright.
