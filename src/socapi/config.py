@@ -42,7 +42,12 @@ class Endpoint(StrEnum):
 
     counters_get = "/api/counter/list"
     counter_create = "/api/counter/create"
+
     sources_get = "/api/source/list"
+    create_source = "/api/source/create"
+    activate_source = "/api/source/activate"
+    update_source = "/api/source/update"
+    delete_source = "/api/source/delete"
 
     duplicate_poll = "api/poll/duplicate"
     update_meta = "/api/poll/update/meta"

@@ -1355,7 +1355,7 @@ class LogicResource(BaseResource):
 class SourceResource(BaseResource):
     """API area for respondent traffic sources."""
 
-    async def get_sources(self) -> Sources:
+    async def get_sources(self) -> sources.Sources:
         """List all configured traffic sources."""
         request = Request(
             method="POST",
@@ -1366,6 +1366,70 @@ class SourceResource(BaseResource):
         return sources.Sources(
             sources = [sources.Source(**s) for s in response.result]
         )
+
+    async def create_source(self, source: sources.Source) -> sources.Source:
+        """Create traffic source"""
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            json_=source.model_dump(include={'name', 'utm'}),
+            endpoint=config.Endpoint.create_source,
+        )
+        response = await self._request(request=request)
+        return sources.Source(**response.result)
+
+    async def update_source(self, source: sources.Source) -> sources.Source:
+        """Update traffic source"""
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            json_=source.model_dump(exclude_none=True),
+            endpoint=config.Endpoint.update_source,
+        )
+        response = await self._request(request=request)
+        return sources.Source(**response.result)
+
+    async def activate_source(self, source_id: int) -> None:
+        """Activate traffic source"""
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            json_={
+                "id": source_id,
+                "is_active": True
+            },
+            endpoint=config.Endpoint.activate_source,
+        )
+        response = await self._request(request=request)
+        return None
+
+    async def deactivate_source(self, source_id: int) -> None:
+        """Deactivate traffic source"""
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            json_={
+                "id": source_id,
+                "is_active": False
+            },
+            endpoint=config.Endpoint.activate_source,
+        )
+        response = await self._request(request=request)
+        return None
+
+    async def delete_source(self, source_id: int) -> None:
+        """Delete traffic source"""
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            json_={
+                "id": source_id,
+            },
+            endpoint=config.Endpoint.delete_source,
+        )
+        response = await self._request(request=request)
+        return None
+
 
 
 # ParserClient's resource-namespace fields reference these classes by name

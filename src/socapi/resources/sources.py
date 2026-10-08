@@ -1,6 +1,6 @@
 from enum import IntEnum
 from datetime import datetime
-from typing import List, Dict, Collection, Literal
+from typing import List, Dict, Collection, Literal, Optional
 import re
 
 from pydantic import BaseModel, Field, ConfigDict, PrivateAttr
@@ -13,15 +13,15 @@ class Source(BaseModel):
     """
     model_config = ConfigDict(extra="forbid")
 
-    id: int = Field(..., ge=1)
+    id: Optional[int] = None
     name: str
     utm: str
     created_at: datetime | None = None
     updated_at: datetime | None = None
-    name_sort_weight: int
-    visible: bool
-    is_active: bool
-    activate: bool
+    name_sort_weight: int = 10
+    visible: bool = True
+    is_active: bool = True
+    activate: bool = False
 
 
 class Sources(BaseModel):

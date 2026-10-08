@@ -6,3 +6,4 @@ from .resources.questions import Question, AnswerTypes, Measures, ChildQuestion,
 from .resources.counters import Counter, CounterCondition, CounterPredicate, PredicateTypes
 from .resources.logic import Display, DisplayAnswers, Jump, InternalCondition, JoinCondition, Comparator
 from .resources.pages import Page, PageType, PageData
+from .resources.sources import Source, Sources
