@@ -502,6 +502,31 @@ class Poll(BaseModel):
 
         return questions_to_metadata(self.questions)
 
+
+    def to_sql_table(self, table_name: str = "my_table"):
+        """
+        Export poll structure to SQL table creation string query
+        """
+        def get_var_type(var_type: str) -> str:
+            match var_type:
+                case "F8.2":
+                    return "INTEGER"
+                case "A12000" | "A40":
+                    return "TEXT"
+
+        def gen_row(var, var_type):
+            return f"   {var} {get_var_type(var_type)}"
+
+        meta = self.spss_metadata
+        return (
+            f"CREATE TABLE IF NOT EXISTS {table_name} (\n" 
+            f"{",\n".join([gen_row(var, var_format) for var, var_format in meta.variable_formats.items()])}" 
+            "\n)"
+                )
+
+
+
+
     def _rebuild_index(self, index_name: str, collection_name: str) -> None:
         """Rebuild a private ``{item.id: item}`` lookup from a list field."""
         setattr(
