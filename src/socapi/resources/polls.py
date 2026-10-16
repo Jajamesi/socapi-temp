@@ -1044,7 +1044,8 @@ class UpdatePollPayload(BaseModel):
     type_id: Optional[PollType] = None
 
 
-
+class ExportRepeatPassagesPayload(BaseModel):
+    poll_id: int = Field(..., ge=1)
 
 # Block/Question/Poll reference each other by name only (blocks.py imports
 # Question/Poll under TYPE_CHECKING to avoid circular imports), so pydantic can't

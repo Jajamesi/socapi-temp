@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from urllib import request
+
 import aiohttp
 from dataclasses import dataclass
 
@@ -733,6 +735,18 @@ class PollResource(BaseResource):
             await poller_task
 
         return results
+
+    async def download_repeat_passages(self, poll_id: int) -> None:
+        """Download csv with duplicated sessions"""
+        payload = polls.ExportRepeatPassagesPayload(poll_id=poll_id)
+        request = Request(
+            method="POST",
+            host=self._client._constructor.admin_url,
+            endpoint=config.Endpoint.repeat_passages,
+            json_=payload.model_dump(mode='json')
+        )
+        return await self._request(request=request)
+
 
     async def update_meta(self, poll_id: int, meta: List[int]) -> polls.Poll:
         """Modify poll access level."""
