@@ -59,6 +59,8 @@ class Endpoint(StrEnum):
 
     create_personal_links = "/api/poll/source/links"
 
+    repeat_passages ="/api/poll/stat/repeats/export"
+
 
 ConstructorHost = Literal[
     "online-sociology.ru",
