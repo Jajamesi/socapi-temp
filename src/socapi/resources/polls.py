@@ -137,6 +137,7 @@ class Poll(BaseModel):
     type_id: PollType | PollTypeName
     is_multiple: bool = True       # can be used several times
     can_cameback: bool = False     # almost never used as True
+    track_repeats: bool = True     # almost never used as False
     field_date: Optional[datetime] = None  # ?
     banner: Banner = Field(default=Banner.DEFAULT)
     background: BackgroundColor = Field(default=BackgroundColor.LIGHT_BLUE)
