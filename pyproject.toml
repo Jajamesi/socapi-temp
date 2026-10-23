@@ -5,16 +5,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "socapi"
-version = "0.1.21"
+version = "0.1.23"
 description = "Python async package to wotk with poll constructor"
-authors = [
-  { name="ZhironkinAA", email="ZhironkinAA@anodialog.ru" },
-]
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "aiohttp>=3.13.5",
-    "ambers>=0.4.2",
+    "ambers==0.4.2",
     "beautifulsoup4>=4.15.0",
     "html-for-docx>=1.2.0",
     "orjson==3.12.0",
@@ -31,8 +28,6 @@ dependencies = [
 [tool.setuptools]
 package-dir = {"" = "src"}
 
-[project.urls]
-Homepage = "https://gitlab.dialog.info/sociology/packages/socapi"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

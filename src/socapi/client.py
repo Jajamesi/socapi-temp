@@ -605,14 +605,14 @@ class PollResource(BaseResource):
         payload = polls.ExportPayload(
             poll_id=poll_id,
             format_id=export_format,
-            filter=filter_
+            filter=filter_.model_dump(exclude_unset=True, by_alias=True)
         )
 
         request = Request(
             method="POST",
             host=self._client._constructor.admin_url,
             endpoint=config.Endpoint.export_poll,
-            json_=payload.model_dump()
+            json_=payload.model_dump(exclude_none=True, by_alias=True, mode="json")
         )
         await self._request(request=request)
 
@@ -657,26 +657,87 @@ class PollResource(BaseResource):
             export_format: polls.ExportFormat | polls.EXPORT_FORMATS = polls.ExportFormat.CSV,
             poll_interval: float | int = 5.0,
             max_concurrent: int = 5,
+
+            date_from: str | datetime | None = None,
+            date_to: str | datetime | None = None,
+            is_poll_complete: bool = True,
+            is_poll_in_progress: bool = True,
+            is_disqualified: bool = True,
+            is_only_plan: bool = False,
+            utm_source: Optional[List[int]] = None
     ) -> Dict[int, bytes]:
-        """
-        Export and download several polls concurrently.
+        """Export and download multiple polls concurrently.
 
-        For each poll: triggers an export job, waits until a shared poller
-        task observes it as ``DONE`` via :meth:`_progress`, then downloads
-        the file and marks the export as consumed.
+        For each poll, triggers an export job, waits for the shared progress
+        poller to report the job as ``DONE`` via :meth:`_progress`, downloads
+        the exported file, and marks the export as consumed.
 
-        :param poll_ids: one poll id or a list of them. Duplicates are
-            dropped (order-preserving) since two in-flight exports for the
-            same poll id would overwrite each other's "ready" event.
-        :param poll_interval: seconds between progress polls.
-        :param max_concurrent: max number of exports triggered at once.
-        :return: mapping of poll id to the downloaded CSV bytes. If any exception occurs, it will be returned instead.
+        Duplicate poll IDs are removed while preserving their original order,
+        because concurrent exports for the same poll ID may overwrite each
+        other's ready events.
+
+        Args:
+            poll_ids: A single poll ID or a list of poll IDs to export.
+                Duplicate IDs are automatically removed while preserving order.
+
+            export_format: The format of the exported files. Defaults to CSV.
+
+            poll_interval: The interval in seconds between progress checks.
+                Defaults to 5.0.
+
+            max_concurrent: The maximum number of exports that can be processed
+                concurrently. Defaults to 5.
+
+            date_from: Optional start datetime for filtering poll data.
+                Accepts a ``datetime`` object or an ISO 8601 string including
+                both the date, time, and timezone offset, for example
+                ``"2025-10-21T00:00:00+03:00"``.
+
+            date_to: Optional end datetime for filtering poll data.
+                Accepts a ``datetime`` object or an ISO 8601 string including
+                both the date, time, and timezone offset, for example
+                ``"2025-10-21T23:59:59+03:00"``.
+
+            is_poll_complete: Whether to include completed polls.
+                Defaults to True.
+
+            is_poll_in_progress: Whether to include polls currently in progress.
+                Defaults to True.
+
+            is_disqualified: Whether to include disqualified poll responses.
+                Defaults to True.
+
+            is_only_plan: Whether to restrict the export to plan-only data.
+                Defaults to False.
+
+            utm_source: Optional list of UTM source IDs to filter by.
+                Defaults to None, which applies no UTM source filter.
+
+        Returns:
+            A dictionary mapping each poll ID to its downloaded file contents
+            as bytes.
+
+        Raises:
+            ValidationError: If the arguments fail Pydantic validation.
+            Exception: If an export job fails, progress monitoring fails, or
+                the exported file cannot be downloaded.
         """
 
         if isinstance(poll_ids, int):
             poll_ids = [poll_ids]
         else:
             poll_ids = list(dict.fromkeys(poll_ids))  # de-dupe, preserve order
+
+        # Validate filters and make explicit object
+        filter_ = polls.ExportFilter(
+            from_=date_from,
+            to=date_to,
+            is_poll_complete=is_poll_complete,
+            is_poll_in_progress=is_poll_in_progress,
+            is_disqualified=is_disqualified,
+            is_only_plan=is_only_plan,
+            utm_source=utm_source
+        )
 
         semaphore = asyncio.Semaphore(max_concurrent)
         in_flight: set[int] = set()
@@ -693,7 +754,7 @@ class PollResource(BaseResource):
                     ready_events[poll_id] = event
                     try:
                         async with asyncio.timeout(self._client.download_timeout):
-                            await self._export_poll(poll_id, export_format=export_format)
+                            await self._export_poll(poll_id, export_format=export_format, filter_=filter_)
                             in_flight.add(poll_id)
                             await event.wait()
                             uuid = ready_uuids.pop(poll_id)
