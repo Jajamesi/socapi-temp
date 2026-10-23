@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Optional, List, Any, Literal, Generator, overload, Annotated
 from datetime import datetime
 from enum import IntEnum, StrEnum
-from pydantic import BaseModel, Field, field_validator, ConfigDict, model_validator, PrivateAttr, AliasChoices
+from pydantic import BaseModel, Field, field_validator, ConfigDict, model_validator, PrivateAttr, AwareDatetime
 from uuid import UUID
 from itertools import chain
 
@@ -969,8 +969,8 @@ class ExportFilter(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     counters_ids: Optional[List[int]] = None
-    from_: Optional[datetime] = Field(default=None, alias="from")
-    to: Optional[datetime] = Field(default=None)
+    from_: Optional[AwareDatetime] = Field(default=None, alias="from")
+    to: Optional[AwareDatetime] = Field(default=None)
     is_disqualified: Optional[bool] = None
     is_only_plan: Optional[bool] = None
     questions: Optional[List[QuestionFilter]] = None
