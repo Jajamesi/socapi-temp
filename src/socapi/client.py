@@ -989,7 +989,7 @@ class PollResource(BaseResource):
         rule.poll_id = poll.id
         rule.reference_question_id = ids[rule.reference_question_id]
         rule.reference_answer_id = [ids[i] for i in rule.reference_answer_id]
-        for attr in ("question_id", "answer_id", "target_question_id", "target_page_id"):
+        for attr in ("question_id", "answer_id", "target_question_id", "target_block_id", "target_page_id"):
             value = getattr(rule, attr, None)
             if value is not None:
                 setattr(rule, attr, ids[value])
@@ -1130,7 +1130,8 @@ class PollResource(BaseResource):
             Create new Page instance in constructor and set actual fields from response to poll instance.
             """
             draft_id = page.id
-            page.poll_id = page._poll.id
+            if page.poll_id is None:  # pages built with add_page get the new poll's id
+                page.poll_id = poll.id
             new_page = await self._client.page.create_page(page)
             page.id = new_page.id
             ids.register(draft_id, new_page.id)
@@ -1194,6 +1195,9 @@ class PollResource(BaseResource):
             Create new Counter instance in constructor.
             """
             counter.poll_id = poll.id
+            for condition in counter.conditions or []:
+                condition.question_id = ids[condition.question_id]
+                condition.answer_ids = [ids[i] for i in condition.answer_ids]
             created_counter = await self._client.counter.create_counter(counter)
             counter.id = created_counter.id
 

@@ -146,7 +146,7 @@ class Answer(BaseModel):
     """A single answer option belonging to a :class:`Question`."""
     id: Optional[int] = None
     order: int = 0
-    title: str
+    title: Optional[str]
     has_input: bool = False
     skip_randomize: bool = False
     exclude_answer: bool = False

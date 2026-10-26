@@ -11,7 +11,14 @@ def parse_text(html: str) -> str:
 TAG_RE = re.compile(r"(</?(?:span|u|mark)\b[^>]*>)")
 
 
+# a title/description downloaded from the constructor is already html: <p>...</p> or <h1>...</h1>
+READY_HTML_RE = re.compile(r"^\s*<(p|h[1-6])\b[^>]*>.*</\1>\s*$", re.S)
+
+
 def md_to_html(text: str) -> str:
+    if READY_HTML_RE.match(text):
+        return text.strip()
+
     # heading prefix "# ", "## " ... -> <h1>, <h2> ...
     tag = "p"
     m = re.match(r"^(#{1,6})\s+(.*)$", text, re.S)

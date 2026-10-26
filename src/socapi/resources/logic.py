@@ -231,10 +231,12 @@ class Jump(Logic):
             "reference_answer_value",
             "reference_question_id",
             "target_page_id",
-            "target_question_id"
+            "target_question_id",
         }
-
-        return [self.model_dump(include=fields)]
+        payload = self.model_dump(include=fields)
+        if self.target_block_id is not None:
+            payload["target_block_id"] = self.target_block_id
+        return [payload]
 
 
 

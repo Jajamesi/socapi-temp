@@ -784,6 +784,120 @@ class Poll(BaseModel):
         if problems:
             raise ValueError("Poll draft is inconsistent:\n" + "\n".join(problems))
 
+    def to_draft(self, name: str | None = None) -> Poll:
+        """
+        Копия опроса, готовая к загрузке на сервер как НОВЫЙ опрос.
+
+        Опрос, скачанный через ``get_poll_structure`` (или ``from_json_file``),
+        уже существует на сервере: у него есть настоящие ``id``, и
+        ``upload_poll`` его не примет. ``to_draft`` делает копию, в которой
+        у опроса, блоков, вопросов, строк матрицы, ответов, страниц, логики и
+        счётчиков временные (отрицательные) id, а все ссылки внутри логики и
+        счётчиков перенаправлены на эти новые id. Исходный опрос не меняется.
+
+        Копию можно менять так же, как опрос, собранный с нуля::
+
+            draft = poll.to_draft(name="Копия опроса")
+            draft.blocks[0].add_question(title="Новый вопрос", type_id="single_answer", answers=["1", "2"])
+            new_poll = await client.poll.upload_poll(draft)
+
+        Args:
+            name: Новое название опроса (``name``). Если не указано, остаётся прежним.
+
+        Returns:
+            Новый ``Poll`` (``is_draft is True``).
+
+        Note:
+            Ссылки на объекты, которых нет в этом опросе (например, страница
+            другого опроса), остаются как есть.
+        """
+        draft = Poll.model_validate(self.model_dump())
+
+        draft.id = None
+        draft.uuid = None
+        draft.created_at = draft.updated_at = draft.deleted_at = draft.status_updated_at = None
+        if name is not None:
+            draft.name = name
+
+        # Real ids of different tables may coincide (block 5 vs question 5), so keep one map per kind.
+        page_ids: dict[int, int] = {}
+        block_ids: dict[int, int] = {}
+        question_ids: dict[int, int] = {}  # top-level questions and matrix rows share one table
+        answer_ids: dict[int, int] = {}
+
+        def fresh(old: int | None, mapping: dict[int, int]) -> int:
+            new = draft._next_id()
+            if old is not None:
+                mapping[old] = new
+            return new
+
+        def remap(value: int | None, mapping: dict[int, int]) -> int | None:
+            return mapping.get(value, value) if value is not None else None
+
+        for page in draft.pages:
+            page.id = fresh(page.id, page_ids)
+            page.poll_id = None  # the new poll's id is filled in on upload
+            page._poll = draft
+
+        for block in draft.blocks:
+            block.id = fresh(block.id, block_ids)
+            block.poll_id = None
+            block.created_at = None
+            page._poll = self
+            for question in block.questions:
+                question.id = fresh(question.id, question_ids)
+                question.block_id = block.id
+                question.parent_id = 0
+                question.created_at = question.updated_at = None
+                question._id_generator = draft._id_generator
+                page._poll = self
+                for answer in question.answers or []:
+                    answer.id = fresh(answer.id, answer_ids)
+                    answer.question_id = question.id
+                    page._poll = self
+                for child in question.children or []:
+                    child.id = fresh(child.id, question_ids)
+                    child.parent_id = question.id
+                    child.block_id = block.id
+                    child.created_at = child.updated_at = None
+                    page._poll = self
+
+        for rule in (*draft.jumps, *draft.displays, *draft.display_answers):
+            rule.id = draft._next_id()
+            rule.poll_id = 0  # real id is substituted on upload
+            rule.created_at = rule.updated_at = rule.deleted_at = None
+            rule.reference_question_id = remap(rule.reference_question_id, question_ids)
+            rule.reference_answer_id = [remap(i, answer_ids) for i in rule.reference_answer_id]
+            page._poll = self
+            if hasattr(rule, "block_id"):
+                rule.block_id = remap(rule.block_id, block_ids)
+            if hasattr(rule, "question_id"):
+                rule.question_id = remap(rule.question_id, question_ids)
+            if hasattr(rule, "answer_id"):
+                rule.answer_id = remap(rule.answer_id, answer_ids)
+            if hasattr(rule, "target_block_id"):
+                rule.target_block_id = remap(rule.target_block_id, block_ids)
+                rule.target_question_id = remap(rule.target_question_id, question_ids)
+                rule.target_page_id = remap(rule.target_page_id, page_ids)
+
+        for counter in draft.counters:
+            counter.id = draft._next_id()
+            counter.poll_id = None
+            counter.hits = None
+            counter.created_at = counter.deleted_at = None
+            page._poll = self
+            for condition in counter.conditions or []:
+                condition.question_id = remap(condition.question_id, question_ids)
+                condition.answer_ids = [remap(i, answer_ids) for i in condition.answer_ids]
+                condition.created_at = condition.deleted_at = None
+
+        draft.rebind_questions()
+        draft.rebind_logics()
+        draft.rebind_blocks()
+        draft.rebind_counter()
+        draft._refresh()
+        return draft
+
     @overload
     def add_page(self, page: Page) -> Page:
         ...
